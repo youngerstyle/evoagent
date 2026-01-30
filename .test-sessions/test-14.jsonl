@@ -1,0 +1,2 @@
+{"type":"session.created","sessionId":"test-14","timestamp":1769757862124}
+{"type":"user.input","sessionId":"test-14","timestamp":1769757862125,"data":{"msg":"test"}}

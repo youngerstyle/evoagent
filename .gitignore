@@ -1,0 +1,22 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+.env
+.env.local
+
+# Runtime data (stored in ~/.evoagent/)
+# These patterns are for development only
+.memory/
+.sessions/
+.vectors.db
+
+# Coverage
+coverage/
+*.lcov
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
