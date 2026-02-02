@@ -1,0 +1,57 @@
+{
+  "skillKey": "virtual-roundtable",
+  "emoji": "🪑",
+  "name": "虚拟专家圆桌会议",
+  "description": "组织虚拟专家圆桌会议，模拟多位专家对设计方案进行评审",
+  "version": "1.0.0",
+  "status": "validated",
+  "homepage": "https://github.com/evoagent/skills/tree/main/manual/virtual-roundtable",
+  "always": false,
+  "primaryEnv": "",
+  "os": ["linux", "macos", "windows"],
+  "requires": {
+    "bins": [],
+    "anyBins": [],
+    "env": [],
+    "config": []
+  },
+  "install": [],
+  "invocationPolicy": {
+    "userInvocable": true,
+    "disableModelInvocation": false
+  },
+  "statistics": {
+    "timesUsed": 0,
+    "timesSucceeded": 0,
+    "timesFailed": 0,
+    "avgDuration": 0,
+    "lastUsed": null
+  },
+  "parameters": {
+    "designDoc": {
+      "type": "string",
+      "description": "设计文档路径，如 docs/design.md",
+      "required": true
+    },
+    "version": {
+      "type": "string",
+      "description": "当前版本号",
+      "required": true
+    },
+    "section": {
+      "type": "string",
+      "description": "可选：特定评审章节",
+      "required": false
+    },
+    "focusTopics": {
+      "type": "array",
+      "description": "评审焦点主题列表",
+      "required": true
+    },
+    "experts": {
+      "type": "array",
+      "description": "可选：指定专家列表",
+      "required": false
+    }
+  }
+}

@@ -14,6 +14,7 @@ import type {
 import type { AgentConfig } from '../../types/agent.js';
 import type { LLMService } from '../../core/llm/types.js';
 import { getLogger } from '../../core/logger/index.js';
+import type { SoulSystem } from '../../soul/index.js';
 
 const logger = getLogger('agent');
 
@@ -23,6 +24,7 @@ const logger = getLogger('agent');
  */
 export abstract class BaseAgent implements AgentInterface {
   protected llm: LLMService;
+  protected soulSystem?: SoulSystem;
   protected activeRuns: Map<string, AgentRunStatus>;
   protected checkpoints: Map<string, AgentCheckpoint>;
   protected eventListeners: Set<AgentEventListener>;
@@ -31,9 +33,11 @@ export abstract class BaseAgent implements AgentInterface {
   constructor(
     public readonly config: AgentConfig,
     public readonly type: string,
-    llm: LLMService
+    llm: LLMService,
+    soulSystem?: SoulSystem
   ) {
     this.llm = llm;
+    this.soulSystem = soulSystem;
     this.activeRuns = new Map();
     this.checkpoints = new Map();
     this.eventListeners = new Set();
@@ -240,9 +244,40 @@ export abstract class BaseAgent implements AgentInterface {
 
   /**
    * 构建系统提示词（子类可覆盖）
+   * 自动注入 SOUL
    */
-  protected buildSystemPrompt(): string {
-    return this.config.systemPrompt || `You are a ${this.type} agent.`;
+  protected async buildSystemPrompt(): Promise<string> {
+    const basePrompt = this.config.systemPrompt || `You are a ${this.type} agent.`;
+
+    if (this.soulSystem) {
+      return this.soulSystem.injectToPrompt(this.type, basePrompt);
+    }
+
+    return basePrompt;
+  }
+
+  /**
+   * 检查边界（SOUL 边界检查）
+   */
+  protected async checkBoundary(action: string): Promise<{ allowed: boolean; requiresConfirmation?: boolean; reason?: string }> {
+    if (this.soulSystem) {
+      const allowed = await this.soulSystem.checkBoundary(this.type, action);
+      return { allowed };
+    }
+    return { allowed: true };
+  }
+
+  /**
+   * 调整输出风格（基于 SOUL）
+   */
+  protected async adjustOutput(output: string): Promise<string> {
+    if (this.soulSystem) {
+      // SoulSystem has adjustOutput method but it's private in SoulInjector
+      // For now, just return the output as-is
+      // Subclasses can override this for specific behavior
+      return output;
+    }
+    return output;
   }
 
   /**
@@ -273,6 +308,16 @@ export abstract class BaseAgent implements AgentInterface {
       return {
         success: false,
         error: `Tool ${toolName} not found`
+      };
+    }
+
+    // 检查 SOUL 边界
+    const boundaryCheck = await this.checkBoundary(toolName);
+    if (!boundaryCheck.allowed) {
+      logger.warn(`Tool ${toolName} blocked by SOUL boundary: ${boundaryCheck.reason}`);
+      return {
+        success: false,
+        error: `Operation blocked: ${boundaryCheck.reason || 'SOUL boundary violation'}`
       };
     }
 

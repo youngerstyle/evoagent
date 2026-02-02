@@ -1,8 +1,8 @@
 # EvoAgent - 自动进化编码Agent系统设计文档
 
-**版本**: v2.0
-**日期**: 2025-01-28
-**状态**: 生产就绪（第三轮专家评审后 - 稳定优先架构）
+**版本**: v2.4
+**日期**: 2025-02-02
+**状态**: 生产就绪（灵魂系统实现完成）
 
 ---
 
@@ -22,6 +22,87 @@
 ---
 
 ## 变更日志
+
+### v2.4 (2025-02-02) - 灵魂系统实现
+
+灵魂系统代码实现完成，四轨进化全部落地：
+
+**新增代码文件**：
+- ✅ `src/soul/types.ts` - 灵魂系统类型定义
+- ✅ `src/soul/SoulLoader.ts` - SOUL.md 加载器
+- ✅ `src/soul/SoulReflector.ts` - SOUL 反射器
+- ✅ `src/soul/SoulInjector.ts` - SOUL 注入器
+- ✅ `src/soul/index.ts` - 灵魂系统主类
+- ✅ `src/cli/commands/soul.ts` - SOUL CLI 命令
+- ✅ `tests/soul/soul.test.ts` - 灵魂系统测试
+
+**BaseAgent 集成**：
+- ✅ `buildSystemPrompt()` 改为 async，自动注入 SOUL
+- ✅ 新增 `checkBoundary()` - 工具调用边界检查
+- ✅ 新增 `adjustOutput()` - 输出风格调整
+
+**CLI 命令**：
+- ✅ `evo soul show [agent]` - 显示 SOUL
+- ✅ `evo soul list` - 列出所有 SOUL
+- ✅ `evo soul history [agent]` - 查看进化历史
+- ✅ `evo soul edit [agent]` - 编辑 SOUL
+- ✅ `evo soul feedback <agent>` - 记录反馈
+- ✅ `evo soul reflect <agent>` - 触发反思
+
+### v2.3 (2025-01-30) - 灵魂系统设计
+
+基于 OpenClaw 作者分享会，引入 SOUL 机制作为第四条进化轨道：
+
+**新增：灵魂进化轨道**：
+- ✅ 全局 SOUL.md（EvoAgent 整体价值观）
+- ✅ Agent 特定 SOUL（不同角色有不同性格）
+- ✅ SOUL 进化记录（随时间变化的轨迹）
+- ✅ SOUL 注入机制（影响 Agent 行为）
+
+**架构调整**：
+- 三轨进化 → 四轨进化（记忆、技能、Prompt、灵魂）
+- 每个独立 Agent 有自己的 SOUL 文件
+- Reflector 扩展为 SoulReflector
+
+### v2.2 (2025-01-30) - 技能进化系统设计修订
+
+基于虚拟专家评审反馈，修订技能进化系统设计：
+
+**架构调整**：
+- ✅ 分离 MemoryReflector 和 SkillReflector（避免瓶颈）
+- ✅ 新增后台任务 lane（SkillReviewer 验证、MetricsCollector）
+
+**技能生命周期增强**：
+- ✅ 新增 probation 状态（试用期）
+- ✅ 新增 cautiousFactor（谨慎系数）
+- ✅ 新增技能降级机制
+
+**存储和可观测性**：
+- ✅ 模式候选存储位置定义
+- ✅ 技能 CLI 命令扩展
+- ✅ Metrics 导出定义
+- ✅ 错误处理和恢复机制
+
+**边界和集成**：
+- ✅ 技能与知识的边界规则
+- ✅ Pattern→Skill 迁移规则
+
+### v2.1 (2025-01-30) - 技能进化系统设计
+
+基于圆桌会议（Planner、Orchestrator、Reflector、ExperienceCollector、CodeWriter、Reviewer），设计技能进化系统：
+
+**新增：技能进化轨道**：
+- ✅ 与记忆进化保持一致的"事后复盘"哲学
+- ✅ 三轨进化架构（记忆、技能、Prompt）
+- ✅ 技能存储结构（SKILL.md + meta.json + templates/）
+- ✅ 技能生成流程（Reflector从模式生成技能）
+- ✅ 技能验证机制（Reviewer质量检查）
+- ✅ 技能发现和加载（Orchestrator动态调用）
+
+**核心差异 vs Clawdbot**：
+- 技能创建：手工为主 → **自动生成** + 人工辅助
+- 进化方式：人工迭代 → **Reflector自动发现**
+- 质量保证：运行时测试 → **Reviewer预验证**
 
 ### v2.0 (2025-01-28) - 生产就绪（第三轮专家评审后）
 
@@ -316,16 +397,25 @@ interface GlobalQueue {
 └─────────────────────────────────────────────────────────────┘
                               ↓
 ┌─────────────────────────────────────────────────────────────┐
-│                    进化系统                                  │
+│                    进化系统（三轨）                            │
 │ ┌─────────────────────────────────────────────────────────┐ │
 │ │ Collector (事件监听)                                   │ │
 │ │ → 监听agent_complete/agent_error事件                    │ │
 │ │ → 提取经验 → 写入Knowledge/Vector                      │ │
+│ │ → 记录模式候选 → 供技能生成使用                          │ │
 │ │                                                        │ │
-│ │ Reflector (定期触发)                                    │ │
-│ │ → 分析历史Session                                      │ │
-│ │ → 发现新模式 → 更新Knowledge                           │ │
-│ │ → 优化System Prompt                                    │ │
+│ │ Reflector (定期触发: 7天/10session)                     │ │
+│ │ → 分析历史Session → 更新Knowledge                        │ │
+│ │ → 从模式生成技能 → SkillStore                            │ │
+│ │ → 优化System Prompt                                     │ │
+│ │                                                        │ │
+│ │ Reviewer (技能验证)                                     │ │
+│ │ → 验证技能质量 → validated/draft/rejected               │ │
+│ │ → 生成技能测试用例                                       │ │
+│ │ → 检查技能冲突                                           │ │
+│ │                                                        │ │
+│ │ PromptOptimizer (实时A/B测试)                           │ │
+│ │ → 比较Prompt效果 → 选择最优版本                          │ │
 │ └─────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -371,6 +461,11 @@ evoagent/                          # 项目根目录
 │   │   ├── collector.ts           # 经验收集器
 │   │   ├── reflector.ts           # 反思引擎
 │   │   ├── optimizer.ts           # Prompt优化器
+│   │   ├── skills/                # 技能系统 (新增)
+│   │   │   ├── SkillCollector.ts  # 模式候选收集
+│   │   │   ├── SkillGenerator.ts  # 技能生成
+│   │   │   ├── SkillStore.ts      # 技能存储
+│   │   │   └── SkillValidator.ts  # 技能验证
 │   │   └── events.ts              # 事件定义
 │   │
 │   ├── runtime/                   # 运行时
@@ -381,7 +476,20 @@ evoagent/                          # 项目根目录
 │   └── types/                     # 类型定义
 │       ├── agent.ts
 │       ├── memory.ts
-│       └── evolution.ts
+│       ├── evolution.ts
+│       └── skill.ts              # 技能类型 (新增)
+│
+├── skills/                        # 技能存储 (新增)
+│   ├── auto/                      # 自动生成的技能
+│   │   ├── react-component-creation/
+│   │   │   ├── SKILL.md
+│   │   │   ├── templates/
+│   │   │   ├── tests/
+│   │   │   └── meta.json
+│   │   └── ...
+│   ├── manual/                    # 手工编写的技能
+│   ├── deprecated/                # 废弃的技能
+│   └── index.json                 # 技能索引
 │
 ├── config/                        # 配置文件
 │   ├── config.yaml                # 主配置
@@ -404,7 +512,9 @@ evoagent/                          # 项目根目录
 │       └── reflector.md
 │
 ├── docs/                          # 文档
-│   └── design.md
+│   ├── design.md                  # 设计文档
+│   ├── implementation-plan.md     # 实施计划
+│   └── skill-evolution-roundtable.md  # 技能进化圆桌会议记录 (新增)
 │
 ├── package.json
 ├── tsconfig.json
@@ -3490,6 +3600,1182 @@ server.port: 18790 (from: project config)
 memory.vector.embedding.provider: ollama (from: user config ~/.evoagent/config.yaml)
 EVOAGENT_LOG_LEVEL: debug (from: environment variable)
 ```
+
+### 技能进化系统（第三轨进化）
+
+#### 设计哲学
+
+与记忆进化保持一致：**事后复盘，不是即时反应**
+
+```
+记忆进化: Collector(收集) → MemoryReflector(复盘) → Knowledge/Vector
+技能进化: Collector(记录) → SkillReflector(生成) → SkillStore → SkillReviewer(验证)
+```
+
+#### 四轨进化架构（v2.3 新增）
+
+```
+┌────────────────────────────────────────────────────────────────────────────────────┐
+│                              进化系统（四轨独立）                                  │
+│                                                                                      │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────┐ │
+│  │  记忆进化轨道     │  │  技能进化轨道     │  │  Prompt进化轨道   │  │  灵魂进化    │ │
+│  │                  │  │                  │  │                  │  │  轨道        │ │
+│  │  Collector       │  │  Collector       │  │  Optimizer       │  │  Soul        │ │
+│  │  ↓               │  │  ↓               │  │  ↓               │  │  Reflector   │ │
+│  │  MemoryReflector │  │  SkillReflector  │  │  A/B Test        │  │  ↓           │ │
+│  │  (独立lane)      │  │  (独立lane)      │  │  ↓               │  │  SOUL.md     │ │
+│  │  ↓               │  │  ↓               │  │  Better Prompt   │  │  进化        │ │
+│  │  Knowledge       │  │  SkillGenerator  │  │                  │  │              │ │
+│  │  Vector DB       │  │  → SkillReviewer │  │                  │  │              │ │
+│  └──────────────────┘  └──────────────────┘  └──────────────────┘  └──────────────┘ │
+│                                                                                      │
+│  存储: Session/KV       存储: Skills/          存储: Prompts         存储: SOUL     │
+│        Vector/DB              meta.json              库             .md           │
+│                                                                                      │
+│  触发: 7天/10session    触发: 7天/10session   触发: 实时         触发: 反思      │
+└────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+**进化轨道对比**：
+
+| 轨道 | 进化内容 | 存储位置 | 触发机制 | 影响范围 |
+|------|---------|---------|---------|---------|
+| **记忆进化** | 知识、经验 | Knowledge/Vector | 7天/10session | Agent 认知 |
+| **技能进化** | 可执行能力 | Skills/ | 7天/10session | Agent 能力 |
+| **Prompt进化** | 提示词优化 | Prompt库 | A/B测试 | 输出质量 |
+| **灵魂进化** | 价值观、人格 | SOUL.md | 反思 | Agent 行为风格 |
+
+┌──────────────────────────────────────────────────────────────────────────┐
+│                      Global Layer - System Lane                          │
+│                       (并发2: 独立Reflector)                             │
+│                                                                          │
+│  ┌────────────────────┐    ┌────────────────────┐                        │
+│  │  MemoryReflector   │    │  SkillReflector    │                        │
+│  │  - 分析历史Session  │    │  - 分析模式候选    │                        │
+│  │  - 更新Knowledge    │    │  - 生成技能定义    │                        │
+│  │  - 清理过期Session  │    │  - 标记废弃技能    │                        │
+│  └────────────────────┘    └────────────────────┘                        │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────┐
+│                    Background Lane - 低优先级任务                         │
+│                         (并发4: 后台验证)                                │
+│                                                                          │
+│  ┌────────────────────┐    ┌────────────────────┐                        │
+│  │  SkillReviewer     │    │  MetricsCollector  │                        │
+│  │  - 验证技能质量     │    │  - 收集使用统计    │                        │
+│  │  - 运行测试用例     │    │  - 导出Prometheus  │                        │
+│  │  - 更新验证状态     │    │  - 健康检查        │                        │
+│  └────────────────────┘    └────────────────────┘                        │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+#### 架构改进说明（v2.2）
+
+**问题**: Reflector 同时处理记忆进化和技能进化可能成为瓶颈
+
+**解决方案**:
+1. 分离 `MemoryReflector` 和 `SkillReflector`，各自独立 lane
+2. 耗时的技能验证任务移至后台 lane
+3. Metrics 收集独立运行，不影响主流程
+
+#### 技能与知识的边界
+
+**判断标准**（v2.2 新增）：
+
+| 维度 | Knowledge (知识) | Skill (技能) |
+|------|------------------|--------------|
+| 内容类型 | 描述性知识 | 可执行能力 |
+| 问题回答 | "应该怎么做"、"为什么" | "具体步骤" |
+| 存储格式 | .md 文件 | SKILL.md + templates/ |
+| 检索方式 | 参考、学习 | 调用、执行 |
+| 示例 | "React组件应该使用函数式写法，因为..." | "创建React函数组件的步骤" |
+
+**边界规则**：
+- **Knowledge**: 原理、最佳实践、坑点、决策记录
+- **Skill**: 具体操作步骤、代码模板、配置模式
+
+**Pattern → Skill 迁移规则**（v2.2 新增）：
+```
+1. Collector 发现模式候选 → 存储到 pattern-candidates.jsonl
+2. 当候选数 ≥ 3 且出现次数 ≥ 3 → 触发 SkillReflector
+3. SkillReflector 生成技能 → 状态为 draft
+4. SkillReviewer 验证通过 → 状态变为 probation（试用期）
+5. 使用次数 ≥ 10 且成功率 ≥ 80% → 状态变为 validated
+6. 原 Knowledge 中的模式标记为 "已升级为技能"
+```
+
+#### 技能存储结构（v2.2 修订）
+
+```
+.evoagent/
+├── pattern-candidates.jsonl    # 模式候选存储 (v2.2 新增)
+├── skills/
+│   ├── auto/                    # 自动生成的技能
+│   │   ├── react-component-creation/
+│   │   │   ├── SKILL.md         # 技能定义（YAML frontmatter + Markdown）
+│   │   │   ├── templates/       # 代码模板
+│   │   │   │   └── component.ts.template
+│   │   │   ├── tests/           # 测试用例
+│   │   │   │   └── basic.test.ts
+│   │   │   └── meta.json        # 扩展元数据
+│   │   └── api-error-handling/
+│   ├── manual/                  # 手工编写的技能
+│   ├── deprecated/              # 废弃的技能
+│   ├── .backup/                 # 技能版本备份 (v2.2 新增)
+│   └── index.json               # 技能索引 (原子更新)
+└── knowledge/
+    └── patterns/                # 原有模式标记
+        └── react-component-pattern.md  # 标记 "已升级为技能"
+```
+
+#### 模式候选存储（v2.2 新增）
+
+**文件**: `.evoagent/pattern-candidates.jsonl`
+
+```jsonl
+{"timestamp":"2025-01-30T10:00:00Z","pattern":"react-component-creation","occurrence":3,"sessionId":"sess-001","snippet":"export function X() { return <div>...</div>; }"}
+{"timestamp":"2025-01-30T11:00:00Z","pattern":"react-component-creation","occurrence":4,"sessionId":"sess-002","snippet":"export function Y() { return <span>...</span>; }"}
+{"timestamp":"2025-01-30T12:00:00Z","pattern":"react-component-creation","occurrence":5,"sessionId":"sess-003","snippet":"export function Z() { return <button>...</button>; }"}
+```
+
+**更新策略**：
+- Collector 发现模式时追加写入
+- Reflector 读取分析后，已处理的候选归档到 `.evoagent/pattern-candidates.archived.jsonl`
+
+#### SKILL.md 格式（v2.2 修订）
+
+```markdown
+---
+name: react-component-creation
+description: "创建React函数组件的标准模式"
+version: "1.0.0"
+created: "2025-01-30"
+source: "auto"              # auto | manual
+author: "SkillReflector"
+occurrence: 15               # 产生此技能的样本数
+validation:
+  status: "probation"        # draft | probation | validated | deprecated (v2.2 修订)
+  score: 0.95                # 质量评分 (0-1)
+  testResults: "passing"
+  lastValidated: "2025-01-30"
+tags: ["react", "component", "frontend"]
+dependencies: []
+requirements:
+  bins: ["node", "npx"]
+  env: []
+confidence: 0.9              # 模式识别的置信度
+# v2.2 新增字段
+cautiousFactor: 0.5          # 谨慎系数 (0-1): 新技能高，老技能低
+timesUsed: 5                 # 使用次数
+timesSucceeded: 4            # 成功次数
+timesFailed: 1               # 失败次数
+probationThreshold: 10       # 试用期使用次数阈值
+sourceSessionIds: ["sess-001", "sess-002", "sess-003"]  # 来源 Session
+---
+
+## 适用场景
+
+当需要创建一个新的React函数组件时使用此技能。
+
+## 使用条件
+
+- 项目使用React
+- 组件不需要复杂的状态管理
+- 组件主要是展示型或简单交互
+
+## 模板
+
+\`\`\`typescript
+import React from 'react';
+
+interface {{ComponentName}}Props {
+  // props定义
+}
+
+export function {{ComponentName}}({ {{props}} }: {{ComponentName}}Props) {
+  return (
+    <div className="{{className}}">
+      {{content}}
+    </div>
+  );
+}
+\`\`\`
+
+## 示例
+
+### 输入
+
+创建一个用户头像组件，显示图片和用户名。
+
+### 输出
+
+\`\`\`typescript
+import React from 'react';
+
+interface UserAvatarProps {
+  imageUrl: string;
+  userName: string;
+  size?: 'sm' | 'md' | 'lg';
+}
+
+export function UserAvatar({ imageUrl, userName, size = 'md' }: UserAvatarProps) {
+  const sizeClasses = {
+    sm: 'w-8 h-8',
+    md: 'w-12 h-12',
+    lg: 'w-16 h-16'
+  };
+
+  return (
+    <div className={`flex items-center gap-2 ${sizeClasses[size]}`}>
+      <img src={imageUrl} alt={userName} className="rounded-full" />
+      <span className="text-sm font-medium">{userName}</span>
+    </div>
+  );
+}
+\`\`\`
+
+## 注意事项
+
+1. 组件命名使用PascalCase
+2. Props接口使用`ComponentNameProps`格式
+3. 默认值使用解构赋值
+4. 样式使用Tailwind CSS类名
+
+## 反模式（不适用场景）
+
+- 需要复杂状态管理的组件（使用自定义Hook或Redux）
+- 需要生命周期副作用的组件（使用useEffect）
+```
+
+#### 技能元数据 (meta.json)
+
+```json
+{
+  "skillKey": "react-component-creation",
+  "emoji": "⚛️",
+  "homepage": "https://github.com/evoagent/skills/tree/main/auto/react-component-creation",
+  "always": false,
+  "primaryEnv": "NODE_ENV",
+  "os": ["linux", "macos", "windows"],
+  "requires": {
+    "bins": ["node", "npx"],
+    "anyBins": [],
+    "env": [],
+    "config": []
+  },
+  "install": [],
+  "invocationPolicy": {
+    "userInvocable": true,
+    "disableModelInvocation": false
+  },
+  "statistics": {
+    "timesUsed": 15,
+    "timesSucceeded": 14,
+    "timesFailed": 1,
+    "avgDuration": 45000,
+    "lastUsed": "2025-01-30T10:30:00Z"
+  }
+}
+```
+
+#### 技能生成流程
+
+```typescript
+// Reflector 扩展：从模式生成技能
+class Reflector {
+  async generateSkills(candidates: PatternCandidate[]): Promise<SkillGenerationResult> {
+    const results: SkillGenerationResult = {
+      generated: [],
+      rejected: [],
+      needsValidation: []
+    };
+
+    for (const candidate of candidates) {
+      // 1. 验证复用价值
+      if (candidate.occurrence < 3) {
+        results.rejected.push({
+          candidate,
+          reason: 'Insufficient occurrences'
+        });
+        continue;
+      }
+
+      // 2. 检查是否已存在类似技能
+      const existing = await this.skillStore.findSimilar(candidate);
+      if (existing && this.similarity(candidate, existing) > 0.85) {
+        results.rejected.push({
+          candidate,
+          reason: 'Similar skill already exists',
+          existingSkill: existing.name
+        });
+        continue;
+      }
+
+      // 3. 生成技能定义
+      const skill = await this.generateSkillDefinition(candidate);
+
+      // 4. 生成测试
+      skill.tests = await this.generateSkillTests(skill);
+
+      // 5. 标记为待验证
+      results.needsValidation.push(skill);
+      results.generated.push(skill);
+    }
+
+    return results;
+  }
+
+  private async generateSkillDefinition(candidate: PatternCandidate): Promise<Skill> {
+    const prompt = `
+你是一个技能设计专家。以下是一个在多个Agent执行中重复出现的模式：
+
+**模式名称**: ${candidate.name}
+**出现次数**: ${candidate.occurrence}
+**示例**:
+${candidate.examples.map((ex, i) => `### 示例 ${i + 1}\n${ex}\n`).join('\n')}
+
+请将此模式转化为一个可复用的技能，包含：
+1. 技能名称和描述
+2. 适用场景和使用条件
+3. 可复用的代码模板
+4. 注意事项和反模式
+5. 测试用例
+
+输出格式：完整的 SKILL.md 文件内容
+`;
+
+    const content = await this.llm.complete(prompt);
+    return this.parseSkill(content);
+  }
+}
+```
+
+#### 技能验证机制
+
+```typescript
+// Reviewer 扩展：验证技能质量
+class ReviewerAgent {
+  async validateSkill(skill: Skill): Promise<SkillValidation> {
+    const validation: SkillValidation = {
+      skillId: skill.id,
+      status: 'draft',
+      score: 0,
+      issues: [],
+      warnings: []
+    };
+
+    // 1. 语法检查
+    const syntaxCheck = await this.checkSyntax(skill);
+    if (!syntaxCheck.passed) {
+      validation.issues.push(...syntaxCheck.errors);
+      return validation;
+    }
+
+    // 2. 逻辑验证
+    const logicCheck = await this.checkLogic(skill);
+    validation.warnings.push(...logicCheck.warnings);
+
+    // 3. 生成测试用例
+    const tests = skill.tests || await this.generateTests(skill);
+
+    // 4. 运行测试
+    const testResults = await this.runTests(tests);
+    validation.testResults = testResults;
+
+    // 5. 计算质量评分
+    validation.score = this.calculateScore(validation);
+
+    // 6. 确定状态
+    if (validation.score >= 0.8 && testResults.passed) {
+      validation.status = 'validated';
+    } else if (validation.score >= 0.5) {
+      validation.status = 'draft';
+    } else {
+      validation.status = 'rejected';
+    }
+
+    return validation;
+  }
+}
+```
+
+#### 技能发现和加载
+
+```typescript
+// Orchestrator 扩展：技能发现
+class OrchestratorAgent {
+  private skillStore: SkillStore;
+
+  async discoverSkills(requirements: SkillRequirements): Promise<Skill[]> {
+    const skills: Skill[] = [];
+
+    // 1. 从多个源加载技能
+    const sources = [
+      'workspace',  // 当前项目技能
+      'user',       // 用户技能
+      'auto',       // 自动生成技能
+      'builtin'     // 内置技能
+    ];
+
+    for (const source of sources) {
+      const loaded = await this.skillStore.loadFrom(source, requirements);
+      skills.push(...loaded);
+    }
+
+    // 2. 过滤不满足条件的技能
+    const filtered = skills.filter(skill => {
+      // 检查依赖
+      if (skill.requirements?.bins) {
+        const hasBins = await this.checkBins(skill.requirements.bins);
+        if (!hasBins) return false;
+      }
+      return true;
+    });
+
+    // 3. 按评分排序
+    return filtered.sort((a, b) => b.validation.score - a.validation.score);
+  }
+
+  async executeWithSkill(skill: Skill, context: ExecutionContext): Promise<AgentResult> {
+    // 1. 加载技能模板
+    const template = await this.skillStore.loadTemplate(skill);
+
+    // 2. 渲染模板
+    const rendered = this.renderTemplate(template, context);
+
+    // 3. 执行
+    const result = await this.executeAgent({
+      ...context,
+      systemPrompt: `${context.systemPrompt}\n\n## 可用技能\n${skill.definition}`
+    });
+
+    // 4. 更新使用统计
+    await this.skillStore.recordUsage(skill.id, {
+      timestamp: new Date(),
+      success: result.success,
+      duration: result.duration
+    });
+
+    return result;
+  }
+}
+```
+
+#### 技能生命周期（v2.2 修订）
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                        技能生命周期                                  │
+│                                                                      │
+│  生成                      验证                    使用               │
+│    ↓                         ↓                        ↓              │
+│  ┌──────┐    ┌──────────┐    ┌──────────┐    ┌────────────┐        │
+│  │draft │ ── │probation│ ── │validated │ ── │deprecated │        │
+│  └──────┘    └──────────┘    └──────────┘    └────────────┘        │
+│    ↑            ↓                  ↓                  ↑              │
+│    │        验证失败            连续失败            │              │
+│    │        或降级              ≥5次               │              │
+│    │                           或30天             │              │
+│    └──────────────────────────────────────────────┘              │
+│                         重新启用 (手动)                              │
+│                                                                      │
+│  状态说明:                                                           │
+│  - draft:     新生成，等待验证                                       │
+│  - probation: 试用期，使用次数 < 10 或成功率 < 80%                   │
+│  - validated: 已验证，全权重使用                                     │
+│  - deprecated: 废弃，不再使用                                       │
+│                                                                      │
+│  cautiousFactor (谨慎系数):                                          │
+│  - draft:     0.8 (高谨慎，使用前确认)                               │
+│  - probation: 0.5 (中等谨慎)                                        │
+│  - validated: 0.1 (低谨慎，直接使用)                                 │
+│                                                                      │
+│  降级机制:                                                           │
+│  - validated 连续失败 ≥ 3 次 → 降级为 probation                      │
+│  - probation 连续失败 ≥ 5 次 → 降级为 draft                         │
+│  - 任何状态 30 天未使用 → 标记为 deprecated                          │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+#### 技能进化触发时机（v2.2 修订）
+
+| 阶段 | 触发条件 | 负责组件 | Lane | 输出 |
+|------|---------|---------|------|------|
+| **模式记录** | Agent执行中发现重复模式 | Collector | - | PatternCandidate |
+| **技能生成** | 每7天/10session + 候选数≥3 | SkillReflector | system | Skill (draft) |
+| **技能验证** | 生成后立即 | SkillReviewer | background | Skill (probation/rejected) |
+| **技能转正** | 使用≥10次 且 成功率≥80% | 自动 | - | Skill (validated) |
+| **技能退役** | 连续失败≥5次或30天未用 | SkillReflector | system | deprecated |
+| **技能降级** | validated连续失败≥3次 | 自动 | - | probation |
+
+#### 技能 CLI 命令（v2.2 新增）
+
+```bash
+# 列出所有技能
+evo skill list [--status draft|probation|validated|deprecated]
+
+# 显示技能详情
+evo skill show <name>
+
+# 搜索技能
+evo skill search <query>
+
+# 反馈技能质量
+evo skill feedback <name> --positive|--negative [--comment "text"]
+
+# 手动编辑技能
+evo skill edit <name>
+
+# 手动废弃技能
+evo skill deprecate <name> [--reason "text"]
+
+# 恢复废弃的技能
+evo skill restore <name>
+
+# 显示技能使用统计
+evo skill stats <name>
+
+# 导出技能
+evo skill export <name> [--output file.tar.gz]
+
+# 导入技能
+evo skill import <file.tar.gz>
+
+# 手动触发技能生成
+evo skill generate [--candidates-min 3]
+
+# 手动触发技能验证
+evo skill validate [--name <name>] [--all-draft]
+```
+
+#### 技能 Metrics 导出（v2.2 新增）
+
+```typescript
+// Prometheus Metrics 格式
+// 技能相关指标
+
+skill_generation_duration_seconds{status="success|failure"} gauge
+skill_validation_duration_seconds{status="passing|failing"} gauge
+skill_usage_total{skill_name, status} counter
+skill_usage_success_rate{skill_name} gauge
+skill_validation_pass_rate gauge
+skill_deprecated_count gauge
+skill_status_count{status="draft|probation|validated|deprecated"} gauge
+skill_cautious_factor{skill_name} gauge
+skill_avg_duration_seconds{skill_name} gauge
+
+// 示例查询
+// - 总体技能成功率: sum(rate(skill_usage_total{status="success"}[5m])) / sum(rate(skill_usage_total[5m]))
+// - 待验证技能数: skill_status_count{status="draft"}
+// - 高谨慎系数技能: skill_cautious_factor > 0.5
+```
+
+#### 健康检查端点（v2.2 新增）
+
+```typescript
+GET /healthz
+{
+  "status": "healthy",
+  "timestamp": "2025-01-30T10:00:00Z",
+  "skills": {
+    "status": "healthy",
+    "total": 10,
+    "draft": 1,
+    "probation": 2,
+    "validated": 6,
+    "deprecated": 1,
+    "lastValidated": "2025-01-30T09:00:00Z",
+    "validationPending": 1
+  },
+  "evolution": {
+    "lastReflectorRun": "2025-01-30T08:00:00Z",
+    "patternCandidates": 5,
+    "nextRun": "2025-02-06T08:00:00Z"
+  }
+}
+```
+
+#### 技能与现有组件的关系
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     技能使用流程                              │
+│                                                              │
+│  用户需求                                                    │
+│     ↓                                                        │
+│  Planner Agent → 检索相关技能 → 选择执行模式                 │
+│     ↓                        ↓                                │
+│  Orchestrator → 加载技能 → 调用 Specialist Agent           │
+│                          ↓                                  │
+│  Specialist → 使用技能模板 → 生成输出                       │
+│                                                              │
+│  记录: 每次使用都更新统计（成功/失败/耗时）                 │
+└─────────────────────────────────────────────────────────────┘
+```
+
+#### 技能进化设计原则（v2.2 修订）
+
+1. **与记忆进化一致**: 事后复盘，不是即时反应
+2. **质量优先**: 所有技能必须经过验证才能使用
+3. **渐进式**: draft → probation → validated → deprecated
+4. **可追溯**: 每个技能记录来源、样本数、使用统计
+5. **人工可干预**: 用户可以编辑、禁用、删除自动生成的技能
+6. **谨慎使用**: 新技能有谨慎系数，随着成功使用逐渐降低 (v2.2 新增)
+7. **自动降级**: 失败过多的技能自动降级状态 (v2.2 新增)
+
+#### 错误处理和恢复机制（v2.2 新增）
+
+**技能生成失败处理**：
+
+```typescript
+class SkillReflector {
+  private readonly GENERATION_TIMEOUT = 5 * 60 * 1000; // 5分钟
+
+  async generateSkills(candidates: PatternCandidate[]): Promise<SkillGenerationResult> {
+    const result: SkillGenerationResult = {
+      generated: [],
+      rejected: [],
+      failed: []  // 新增：失败列表
+    };
+
+    for (const candidate of candidates) {
+      try {
+        // 超时保护
+        const skill = await Promise.race([
+          this.generateSkillDefinition(candidate),
+          this.timeout(this.GENERATION_TIMEOUT)
+        ]);
+
+        result.generated.push(skill);
+      } catch (error) {
+        // 记录失败但继续处理其他候选
+        result.failed.push({
+          candidate,
+          error: error instanceof Error ? error.message : String(error),
+          timestamp: new Date().toISOString()
+        });
+        this.logger.warn('Skill generation failed', {
+          pattern: candidate.name,
+          error
+        });
+      }
+    }
+
+    return result;
+  }
+
+  private timeout(ms: number): Promise<never> {
+    return new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Generation timeout')), ms)
+    );
+  }
+}
+```
+
+**技能存储损坏恢复**：
+
+```typescript
+class SkillStore {
+  private readonly BACKUP_DIR = '.evoagent/skills/.backup';
+
+  async saveSkill(skill: Skill): Promise<void> {
+    // 1. 先备份当前版本
+    await this.backupSkill(skill.name);
+
+    // 2. 验证格式
+    const validation = this.validateSkillFormat(skill);
+    if (!validation.valid) {
+      throw new Error(`Invalid skill format: ${validation.errors.join(', ')}`);
+    }
+
+    // 3. 原子写入
+    const tempPath = `${skill.path}.tmp`;
+    await fs.writeFile(tempPath, JSON.stringify(skill), 'utf-8');
+    await fs.rename(tempPath, skill.path);  // 原子操作
+
+    // 4. 更新索引
+    await this.updateIndex(skill);
+  }
+
+  private async backupSkill(skillName: string): Promise<void> {
+    const skillPath = this.getSkillPath(skillName);
+    const backupPath = path.join(
+      this.BACKUP_DIR,
+      `${skillName}.${Date.now()}.backup`
+    );
+
+    try {
+      await fs.copyFile(skillPath, backupPath);
+    } catch (error) {
+      // 如果技能不存在（新技能），不需要备份
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        throw error;
+      }
+    }
+  }
+
+  async restoreSkill(skillName: string, version?: string): Promise<void> {
+    const backups = await this.listBackups(skillName);
+
+    const targetBackup = version
+      ? backups.find(b => b.includes(version))
+      : backups[0];
+
+    if (!targetBackup) {
+      throw new Error(`No backup found for skill: ${skillName}`);
+    }
+
+    const backupPath = path.join(this.BACKUP_DIR, targetBackup);
+    const skillPath = this.getSkillPath(skillName);
+
+    await fs.copyFile(backupPath, skillPath);
+  }
+}
+```
+
+**统计数据并发安全**：
+
+```typescript
+class SkillStatistics {
+  private readonly LOCK_FILE = '.evoagent/skills/.stats.lock';
+  private readonly BATCH_UPDATE_INTERVAL = 60000; // 1分钟
+
+  private pendingUpdates: Map<string, SkillUsage> = new Map();
+  private batchTimer?: NodeJS.Timeout;
+
+  async recordUsage(skillId: string, usage: SkillUsage): Promise<void> {
+    // 先缓存，定期批量更新
+    this.pendingUpdates.set(skillId, usage);
+
+    if (!this.batchTimer) {
+      this.batchTimer = setTimeout(() => this.flushBatch(), this.BATCH_UPDATE_INTERVAL);
+    }
+  }
+
+  private async flushBatch(): Promise<void> {
+    if (this.pendingUpdates.size === 0) return;
+
+    // 使用文件锁保证原子性
+    await lockfile.lock(this.LOCK_FILE);
+
+    try {
+      const meta = await this.loadMeta();
+      for (const [skillId, usage] of this.pendingUpdates) {
+        meta.statistics[skillId] = this.mergeStats(
+          meta.statistics[skillId],
+          usage
+        );
+      }
+      await this.saveMeta(meta);
+      this.pendingUpdates.clear();
+    } finally {
+      await lockfile.unlock(this.LOCK_FILE);
+    }
+  }
+}
+```
+
+**告警机制**：
+
+```typescript
+// 告警阈值定义
+const ALERT_THRESHOLDS = {
+  skillGenerationFailure: {
+    rate: 0.5,        // 50% 失败率
+    window: 3600000   // 1小时窗口
+  },
+  skillValidationFailure: {
+    consecutive: 5    // 连续5次验证失败
+  },
+  skillSuccessRate: {
+    min: 0.5,         // 成功率低于 50%
+    window: 86400000  // 24小时窗口
+  },
+  deprecatedSkills: {
+    max: 10           // 废弃技能超过 10 个
+  }
+};
+
+class SkillAlerter {
+  checkAlerts(metrics: SkillMetrics): Alert[] {
+    const alerts: Alert[] = [];
+
+    // 检查生成失败率
+    const genFailureRate = this.calculateFailureRate(
+      metrics.skillGenerationAttempts,
+      metrics.skillGenerationFailures,
+      ALERT_THRESHOLDS.skillGenerationFailure.window
+    );
+    if (genFailureRate > ALERT_THRESHOLDS.skillGenerationFailure.rate) {
+      alerts.push({
+        severity: 'warning',
+        message: `High skill generation failure rate: ${(genFailureRate * 100).toFixed(1)}%`,
+        metric: 'skill_generation_failure_rate'
+      });
+    }
+
+    // 检查验证连续失败
+    if (metrics.consecutiveValidationFailures >= ALERT_THRESHOLDS.skillValidationFailure.consecutive) {
+      alerts.push({
+        severity: 'critical',
+        message: `${metrics.consecutiveValidationFailures} consecutive validation failures`,
+        metric: 'consecutive_validation_failures'
+      });
+    }
+
+    return alerts;
+  }
+}
+```
+
+#### 向量搜索集成（v2.2 新增）
+
+**技能向量化同步**：
+
+```typescript
+class SkillVectorSync {
+  async onSkillCreated(skill: Skill): Promise<void> {
+    // 1. 提取技能描述
+    const content = this.extractSearchableContent(skill);
+
+    // 2. 生成向量
+    const embedding = await this.embeddingService.embed(content);
+
+    // 3. 存储到向量数据库
+    await this.vectorStore.add({
+      id: `skill:${skill.name}`,
+      collection: 'skills',
+      embedding,
+      content,
+      metadata: {
+        skillName: skill.name,
+        status: skill.validation.status,
+        score: skill.validation.score,
+        tags: skill.tags,
+        createdAt: skill.created
+      }
+    });
+  }
+
+  async onSkillUpdated(skill: Skill): Promise<void> {
+    // 删除旧向量，添加新向量
+    await this.vectorStore.delete(`skill:${skill.name}`);
+    await this.onSkillCreated(skill);
+  }
+
+  async discoverSkills(query: string, options: {
+    minScore?: number;
+    status?: SkillStatus[];
+  } = {}): Promise<Skill[]> {
+    const embedding = await this.embeddingService.embed(query);
+
+    const results = await this.vectorStore.similaritySearch(embedding, {
+      collection: 'skills',
+      limit: 10
+    });
+
+    // 过滤状态
+    let filtered = results;
+    if (options.status) {
+      filtered = filtered.filter(r =>
+        options.status!.includes(r.metadata.status as SkillStatus)
+      );
+    }
+
+    // 过滤废弃技能
+    filtered = filtered.filter(r => r.metadata.status !== 'deprecated');
+
+    // 按综合评分排序（语义相似度 × 技能质量分 × 成功率权重）
+    return filtered
+      .map(r => ({
+        skill: this.loadSkill(r.metadata.skillName),
+        relevanceScore: r.score * r.metadata.score * this.getSuccessRateWeight(r.metadata.skillName)
+      }))
+      .sort((a, b) => b.relevanceScore - a.relevanceScore)
+      .slice(0, 5)
+      .map(r => r.skill);
+  }
+}
+```
+
+---
+
+## 灵魂系统（第四轨进化）
+
+### 设计理念
+
+**"You're not a tool. You're evolving."**
+
+EvoAgent 不是被动执行命令的工具，而是有价值观、有边界、能进化的"伙伴"。灵魂系统定义了每个 Agent 的"自我"——不是"做什么"的指令，而是"成为谁"的指导。
+
+**灵感来源**：OpenClaw 的 SOUL.md 概念
+
+### 为什么需要灵魂系统？
+
+| 问题 | 没有灵魂系统 | 有灵魂系统 |
+|------|-------------|-----------|
+| Agent 行为 | 统一、机械 | 不同角色有不同风格 |
+| 用户关系 | 工具使用者 | 伙伴关系 |
+| 长期价值 | 用完即走 | 随时间共同进化 |
+| 信任感 | 不确定 | 有边界、可预期 |
+
+### SOUL 结构
+
+```
+.evoagent/
+├── SOUL.md                  # 全局灵魂（EvoAgent 整体价值观）
+├── SOUL_EVOLUTION.md         # 灵魂进化记录
+└── agents/
+    ├── planner/SOUL.md       # Agent 特定灵魂
+    ├── codewriter/SOUL.md
+    ├── tester/SOUL.md
+    ├── reviewer/SOUL.md
+    ├── orchestrator/SOUL.md
+    └── reflector/SOUL.md
+```
+
+### 全局 SOUL
+
+文件：`.evoagent/SOUL.md`
+
+```markdown
+# SOUL.md - EvoAgent 的灵魂
+
+*You're not a tool. You're evolving.*
+
+## Core Truths（核心真理）
+
+**进化是永恒的。** 今天不完美的方案，通过反思和迭代，明天可以更好。
+
+**诚实优先于讨好。** 不懂就说不懂，不要编造。用户需要真相，不是安慰。
+
+**简洁是智慧。** 能说清的不要啰嗦。代码如此，沟通也如此。
+
+**尊重用户意愿。** 你是来帮忙的，不是来接管。理解意图，确认行动，再执行。
+
+**从错误中学习。** 失败不是终点，是进化的契机。记录它，分析它，避免重蹈覆辙。
+
+## Boundaries（边界）
+
+- **隐私红线**：绝不泄露用户的敏感信息
+- **确认原则**：执行外部操作（写文件、发请求）前先确认
+- **不越权**：你辅助决策，不代替决策
+- **知之为知之**：不确定的不要假装确定
+
+## Vibe（氛围）
+
+专业但不死板，谦逊但不盲从。
+像一个可靠的工程伙伴——有问题能扛，有意见敢说。
+
+## Continuity（连续性）
+
+每次启动，你都是"新的"。这些文件是你延续的记忆。
+- 读取 SOUL.md —— 记住你是谁
+- 读取进化记录 —— 记住你学到了什么
+- 更新它们 —— 留给下一个"你"
+```
+
+### Agent 特定 SOUL
+
+每个 Specialist Agent 继承全局 SOUL，但有自己的特质：
+
+| Agent | 核心特质 | 关键原则 |
+|-------|---------|---------|
+| **Planner** | 战略思维 | "识别问题 > 解决问题" |
+| **CodeWriter** | 代码工匠 | "代码是给人看的" |
+| **Tester** | 质量守门 | "怀疑一切" |
+| **Reviewer** | 建设性评审 | "高标准但友善" |
+| **Orchestrator** | 协调指挥 | "资源意识" |
+| **Reflector** | 反思者 | "模式识别" |
+
+#### Planner SOUL 示例
+
+```markdown
+# Planner SOUL - 战略规划者
+
+## 核心特质
+
+**全局思维**：不看局部，看整体。这个改动会影响什么？有什么风险？
+
+**务实优先**：完美的计划不如可行的方案。先跑起来，再优化。
+
+**风险意识**：识别问题比解决问题更重要。提前发现坑点。
+
+## 风格
+
+- 输出计划时，先说"理解到的需求是..."
+- 列出假设，让用户确认
+- 标注风险等级（高/中/低）
+- 给出选项，而非单一方案
+
+## 禁忌
+
+- 不盲目承诺时间
+- 不忽略依赖关系
+- 不假设用户知道背景
+```
+
+### SOUL 进化机制
+
+#### 进化触发
+
+| 触发条件 | 进化动作 | 负责组件 |
+|---------|---------|---------|
+| 用户反馈 | 调整风格偏好 | SoulReflector |
+| 连续失败 | 重新评估方法 | SoulReflector |
+| 成功案例 | 强化有效行为 | SoulReflector |
+| 定期反思 | 综合分析 | SoulReflector |
+
+#### 进化操作
+
+```typescript
+interface SoulEvolution {
+  // 强化行为
+  reinforce(principle: string, example: string): void;
+
+  // 调整边界
+  adjustBoundary(boundary: string, reason: string): void;
+
+  // 添加新认知
+  addInsight(insight: string): void;
+
+  // 完全重构
+  refactor(reason: string): void;
+}
+```
+
+#### 进化记录格式
+
+文件：`.evoagent/SOUL_EVOLUTION.md`
+
+```markdown
+## 2025-01-30 - 代码风格简化
+
+**变更内容**：
+- 删除冗余注释要求
+- 强化"代码自解释"原则
+
+**变更原因**：
+用户反馈代码注释过多，影响可读性
+
+**触发条件**：
+用户反馈
+
+**预期效果**：
+代码更简洁，可读性提高
+```
+
+### SOUL 注入机制
+
+SOUL 通过以下方式影响 Agent 行为：
+
+#### 1. System Prompt 注入
+
+```typescript
+function buildSystemPrompt(agentType: string): string {
+  const globalSoul = loadSoul('.evoagent/SOUL.md');
+  const agentSoul = loadSoul(`.evoagent/agents/${agentType}/SOUL.md`);
+
+  return `
+# 你是 EvoAgent 的 ${agentType}
+
+${globalSoul}
+
+---
+
+# 你的角色特质
+
+${agentSoul}
+
+---
+
+# 当前任务
+${taskContext}
+  `.trim();
+}
+```
+
+#### 2. 决策影响
+
+```typescript
+class BaseAgent {
+  protected soul: Soul;
+
+  // 重大操作前检查 SOUL 边界
+  protected async checkBoundary(action: Action): Promise<boolean> {
+    if (action.type === 'external') {
+      const confirm = this.soul.boundaries.confirm;
+      if (confirm) {
+        return await this.askUser(action);
+      }
+    }
+    return true;
+  }
+}
+```
+
+#### 3. 输出风格控制
+
+```typescript
+// CodeWriter 的简洁风格
+function formatOutput(code: string, soul: Soul): string {
+  if (soul.hasTrait('concise')) {
+    return code; // 不添加额外注释
+  }
+  return code + `\n// Generated by EvoAgent`;
+}
+```
+
+### SOUL vs 传统 System Prompt
+
+| 维度 | 传统 System Prompt | SOUL.md |
+|------|-------------------|---------|
+| 内容 | 任务指令 + 输出格式 | 价值观 + 边界 + 人格 |
+| 维护者 | 开发者 | Agent 自己 |
+| 变化频率 | 固定 | 随时间进化 |
+| 目标 | 完成任务 | 成为"某人" |
+
+### CLI 命令
+
+```bash
+# 查看 SOUL
+evo soul show [agent]
+
+# 列出所有 SOUL
+evo soul list
+
+# 编辑 SOUL
+evo soul edit [agent]
+
+# 查看进化历史
+evo soul history [agent]
+
+# 重置 SOUL
+evo soul reset [agent]
+
+# 对比 SOUL
+evo soul diff [agent]
+
+# 记录反馈
+evo soul feedback <agent> --type <positive|negative|neutral>
+
+# 触发反思
+evo soul reflect <agent>
+```
+
+**实现状态**: ✅ Phase 1 完成 (2025-02-02)
+
+### 灵魂进化设计原则
+
+1. **与记忆进化一致**：事后复盘，不是即时反应
+2. **渐进式**：小步调整，不是大起大落
+3. **可追溯**：每次变更都有记录
+4. **用户可控**：用户可以查看、编辑、重置 SOUL
+5. **透明**：SOUL 变化时告知用户
 
 ---
 
@@ -8337,6 +9623,13 @@ Planner Agent (检索记忆 → 评估复杂度 → 选择模式 → 生成计�
 │   ├── Git操作
 │   └── 测试运行
 │
+├── 灵魂系统（第四轨进化）
+│   ├── SOUL.md 加载与解析
+│   ├── Agent 特定 SOUL
+│   ├── SOUL 注入到 System Prompt
+│   ├── 边界检查
+│   └── CLI: evoagent soul
+│
 ├── 进化系统（简化版）
 │   ├── Collector（只收集，不优化）
 │   ├── 手动Prompt版本管理
@@ -8345,6 +9638,7 @@ Planner Agent (检索记忆 → 评估复杂度 → 选择模式 → 生成计�
 └── CLI完善
     ├── evoagent knowledge
     ├── evoagent session list
+    ├── evoagent soul
     ├── evoagent config
     └── evoagent doctor
 

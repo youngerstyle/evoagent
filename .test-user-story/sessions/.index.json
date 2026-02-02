@@ -1,25 +1,25 @@
 {
   "version": 1,
-  "lastUpdated": 1769757862020,
+  "lastUpdated": 1770014009214,
   "sessions": [
     {
       "sessionId": "session-2025-01-29-001",
       "userId": "alice",
       "status": "archived",
-      "createdAt": 1769757862040,
-      "updatedAt": 1769757862074,
+      "createdAt": 1770014009231,
+      "updatedAt": 1770014009262,
       "agentRunCount": 1,
       "messageCount": 5,
       "fileSize": 848,
       "keepForever": true,
-      "completedAt": 1769757862054
+      "completedAt": 1770014009243
     },
     {
       "sessionId": "session-2025-02-01-002",
       "userId": "alice",
       "status": "active",
-      "createdAt": 1769757862057,
-      "updatedAt": 1769757862059,
+      "createdAt": 1770014009245,
+      "updatedAt": 1770014009246,
       "agentRunCount": 0,
       "messageCount": 2,
       "fileSize": 255,

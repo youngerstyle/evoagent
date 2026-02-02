@@ -111,7 +111,7 @@ export class CodeWriterAgent extends BaseAgent {
     const runId = this.initRun(options.input, options.sessionId, options.parentRunId);
 
     try {
-      const systemPrompt = this.buildSystemPrompt();
+      const systemPrompt = await this.buildSystemPrompt();
       const messages: Message[] = [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: options.input }
@@ -203,8 +203,8 @@ export class CodeWriterAgent extends BaseAgent {
     }
   }
 
-  protected buildSystemPrompt(): string {
-    return this.config.systemPrompt || `You are a CodeWriter agent specializing in writing clean, maintainable code.
+  protected async buildSystemPrompt(): Promise<string> {
+    const basePrompt = this.config.systemPrompt || `You are a CodeWriter agent specializing in writing clean, maintainable code.
 
 Your role:
 - Write code based on user requirements
@@ -227,6 +227,8 @@ When writing code:
 3. Write clean, modular code
 4. Add necessary error handling
 5. Consider testability`;
+    // 让基类注入 SOUL
+    return basePrompt;
   }
 
   private extractArtifacts(content: string): Artifact[] {

@@ -1,0 +1,26 @@
+{
+  "skillKey": "technical-roundtable",
+  "emoji": "🪑",
+  "homepage": "https://github.com/evoagent/skills/tree/main/manual/technical-roundtable",
+  "always": false,
+  "primaryEnv": null,
+  "os": ["linux", "macos", "windows"],
+  "requires": {
+    "bins": [],
+    "anyBins": [],
+    "env": [],
+    "config": []
+  },
+  "install": [],
+  "invocationPolicy": {
+    "userInvocable": true,
+    "disableModelInvocation": false
+  },
+  "statistics": {
+    "timesUsed": 0,
+    "timesSucceeded": 0,
+    "timesFailed": 0,
+    "avgDuration": 0,
+    "lastUsed": null
+  }
+}

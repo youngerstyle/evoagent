@@ -271,4 +271,19 @@ program
     }
   });
 
+// Soul commands
+const { registerSoulCommands } = await import('./commands/soul.js');
+const { SoulSystem } = await import('../soul/index.js');
+
+program
+  .command('soul')
+  .description('Manage SOUL (agent personality and values)')
+  .action(async () => {
+    // 显示帮助信息
+    program.outputHelp();
+  });
+
+// 注册 soul 子命令
+registerSoulCommands(program, new SoulSystem(createLLMServiceFromEnv(), createLogger({ component: 'soul' })));
+
 program.parse();

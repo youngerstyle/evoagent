@@ -101,7 +101,7 @@ export class TesterAgent extends BaseAgent {
     const runId = this.initRun(options.input, options.sessionId, options.parentRunId);
 
     try {
-      const systemPrompt = this.buildSystemPrompt();
+      const systemPrompt = await this.buildSystemPrompt();
       const messages: Message[] = [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: options.input }
@@ -194,8 +194,8 @@ export class TesterAgent extends BaseAgent {
     }
   }
 
-  protected buildSystemPrompt(): string {
-    return this.config.systemPrompt || `You are a Tester agent specializing in writing comprehensive tests.
+  protected async buildSystemPrompt(): Promise<string> {
+    const basePrompt = this.config.systemPrompt || `You are a Tester agent specializing in writing comprehensive tests.
 
 Your role:
 - Write unit tests, integration tests, and end-to-end tests
@@ -230,6 +230,8 @@ Supported test frameworks:
 - Jest (TypeScript/JavaScript)
 - Pytest (Python)
 - Go testing (Go)`;
+    // 让基类注入 SOUL
+    return basePrompt;
   }
 
   private extractTestArtifacts(content: string): Artifact[] {

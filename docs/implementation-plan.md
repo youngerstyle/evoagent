@@ -1,9 +1,9 @@
-# EvoAgent 实施计划 v1.2
+# EvoAgent 实施计划 v1.3
 
 **创建日期**: 2025-01-28
 **更新日期**: 2025-01-30
-**基于设计文档**: v2.0
-**预计工期**: 15周
+**基于设计文档**: v2.2
+**预计工期**: 19周
 **实施策略**: 基础设施先行 + 里程碑串行 + 接口优先
 
 ---
@@ -16,8 +16,9 @@
 4. [里程碑2: Agent记忆系统 ✅ 已完成](#里程碑2-agent记忆系统-已完成)
 5. [里程碑3: 多Agent协作 ✅ 已完成](#里程碑3-多agent协作-已完成)
 6. [里程碑4: 自我进化 ✅ 已完成](#里程碑4-自我进化-已完成)
-7. [质量保障策略](#质量保障策略)
-8. [风险与应对](#风险与应对)
+7. [里程碑5: 技能进化系统 🚧 待实施](#里程碑5-技能进化系统-待实施)
+8. [质量保障策略](#质量保障策略)
+9. [风险与应对](#风险与应对)
 
 ---
 
@@ -1590,6 +1591,633 @@ src/queue/
 
 ---
 
+## 里程碑5: 技能进化系统 🚧 待实施
+
+**目标**: 实现技能自动生成、验证和使用系统
+
+**验收标准**:
+- [ ] 模式候选可以收集和存储
+- [ ] 技能可以从模式自动生成
+- [ ] 技能可以经过验证进入试用期
+- [ ] 技能可以在试用期后转正
+- [ ] 技能可以通过 CLI 管理和查看
+- [ ] 技能可以由 Orchestrator 发现和调用
+
+**预计工期**: 约4周
+
+### Task 5.1: 模式候选收集 (4天)
+
+**文件清单**:
+```
+src/evolution/
+├── skills/
+│   ├── SkillCollector.ts
+│   ├── PatternCandidate.ts
+│   └── types.ts
+.evoagent/
+└── pattern-candidates.jsonl
+```
+
+**文件: src/evolution/skills/PatternCandidate.ts**
+```typescript
+export interface PatternCandidate {
+  timestamp: string;
+  pattern: string;
+  occurrence: number;
+  sessionId: string;
+  snippet: string;
+  context?: {
+    agentType: string;
+    task: string;
+  };
+}
+
+export class PatternStorage {
+  private readonly CANDIDATES_FILE = '.evoagent/pattern-candidates.jsonl';
+  private readonly ARCHIVE_FILE = '.evoagent/pattern-candidates.archived.jsonl';
+
+  async append(candidate: PatternCandidate): Promise<void> {
+    const line = JSON.stringify(candidate) + '\n';
+    await fs.appendFile(this.CANDIDATES_FILE, line, 'utf-8');
+  }
+
+  async load(): Promise<PatternCandidate[]> {
+    try {
+      const content = await fs.readFile(this.CANDIDATES_FILE, 'utf-8');
+      return content
+        .split('\n')
+        .filter(line => line.trim())
+        .map(line => JSON.parse(line));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return [];
+      }
+      throw error;
+    }
+  }
+
+  async archive(processed: PatternCandidate[]): Promise<void> {
+    const remaining = new Set(processed.map(p => `${p.timestamp}:${p.pattern}`));
+    const current = await this.load();
+
+    const toArchive = current.filter(c =>
+      remaining.has(`${c.timestamp}:${c.pattern}`)
+    );
+    const toKeep = current.filter(c =>
+      !remaining.has(`${c.timestamp}:${c.pattern}`)
+    );
+
+    // 追加到归档
+    const archiveLines = toArchive.map(c => JSON.stringify(c)).join('\n') + '\n';
+    await fs.appendFile(this.ARCHIVE_FILE, archiveLines, 'utf-8');
+
+    // 重写当前文件
+    const keepLines = toKeep.map(c => JSON.stringify(c)).join('\n');
+    await fs.writeFile(this.CANDIDATES_FILE, keepLines + '\n', 'utf-8');
+  }
+}
+```
+
+### Task 5.2: SkillReflector 实现 (6天)
+
+**文件清单**:
+```
+src/evolution/skills/
+├── SkillReflector.ts
+├── SkillGenerator.ts
+└── prompts/
+    └── generate-skill.md
+```
+
+**文件: src/evolution/skills/SkillReflector.ts**
+```typescript
+import { PatternStorage, PatternCandidate } from './PatternCandidate.js';
+import { SkillGenerator } from './SkillGenerator.js';
+import { SkillStore } from './SkillStore.js';
+
+export class SkillReflector {
+  constructor(
+    private patternStorage: PatternStorage,
+    private skillGenerator: SkillGenerator,
+    private skillStore: SkillStore
+  ) {}
+
+  async run(options: {
+    minCandidates: number;
+    minOccurrence: number;
+  }): Promise<SkillReflectorResult> {
+    // 1. 加载模式候选
+    const candidates = await this.patternStorage.load();
+
+    // 2. 按模式分组
+    const grouped = this.groupByPattern(candidates);
+
+    // 3. 过滤满足条件的模式
+    const eligible = Array.from(grouped.entries()).filter(([_, group]) =>
+      group.length >= options.minCandidates &&
+      group.reduce((sum, c) => sum + c.occurrence, 0) >= options.minOccurrence
+    );
+
+    // 4. 为每个模式生成技能
+    const results: SkillReflectorResult = {
+      generated: [],
+      rejected: [],
+      failed: []
+    };
+
+    for (const [pattern, group] of eligible) {
+      try {
+        const skill = await this.skillGenerator.generate({
+          pattern,
+          samples: group
+        });
+
+        // 检查是否已存在相似技能
+        const existing = await this.skillStore.findSimilar(pattern);
+        if (existing && this.similarity(pattern, existing.name) > 0.85) {
+          results.rejected.push({
+            pattern,
+            reason: 'Similar skill exists',
+            existing: existing.name
+          });
+          continue;
+        }
+
+        skill.validation.status = 'draft';
+        skill.cautiousFactor = 0.8;
+        await this.skillStore.save(skill);
+        results.generated.push(skill);
+      } catch (error) {
+        results.failed.push({
+          pattern,
+          error: error instanceof Error ? error.message : String(error)
+        });
+      }
+    }
+
+    // 5. 归档已处理的候选
+    const processed = eligible.flatMap(([_, group]) => group);
+    await this.patternStorage.archive(processed);
+
+    return results;
+  }
+
+  private groupByPattern(candidates: PatternCandidate[]): Map<string, PatternCandidate[]> {
+    const groups = new Map<string, PatternCandidate[]>();
+    for (const c of candidates) {
+      if (!groups.has(c.pattern)) {
+        groups.set(c.pattern, []);
+      }
+      groups.get(c.pattern)!.push(c);
+    }
+    return groups;
+  }
+
+  private similarity(a: string, b: string): number {
+    // 简单的 Jaccard 相似度
+    const setA = new Set(a.toLowerCase().split(/[-\s]/));
+    const setB = new Set(b.toLowerCase().split(/[-\s]/));
+    const intersection = new Set([...setA].filter(x => setB.has(x)));
+    const union = new Set([...setA, ...setB]);
+    return intersection.size / union.size;
+  }
+}
+```
+
+### Task 5.3: SkillReviewer 实现 (5天)
+
+**文件清单**:
+```
+src/evolution/skills/
+├── SkillReviewer.ts
+├── SkillValidator.ts
+└── SkillTester.ts
+```
+
+**文件: src/evolution/skills/SkillReviewer.ts**
+```typescript
+export class SkillReviewer {
+  async validate(skill: Skill): Promise<SkillValidation> {
+    const validation: SkillValidation = {
+      skillId: skill.id,
+      status: 'draft',
+      score: 0,
+      issues: [],
+      warnings: []
+    };
+
+    // 1. 语法检查
+    const syntaxCheck = await this.checkSyntax(skill);
+    if (!syntaxCheck.passed) {
+      validation.issues.push(...syntaxCheck.errors);
+      return validation;
+    }
+
+    // 2. 逻辑验证
+    const logicCheck = await this.checkLogic(skill);
+    validation.warnings.push(...logicCheck.warnings);
+
+    // 3. 模板验证
+    const templateCheck = await this.checkTemplates(skill);
+    validation.warnings.push(...templateCheck.warnings);
+
+    // 4. 生成测试用例
+    const tests = skill.tests || await this.generateTests(skill);
+
+    // 5. 运行测试
+    const testResults = await this.runTests(tests);
+    validation.testResults = testResults;
+
+    // 6. 计算质量评分
+    validation.score = this.calculateScore({
+      syntax: syntaxCheck.score,
+      logic: logicCheck.score,
+      template: templateCheck.score,
+      tests: testResults.passed ? 1 : 0
+    });
+
+    // 7. 确定状态
+    if (validation.score >= 0.8 && testResults.passed) {
+      validation.status = 'probation';  // 试用期
+    } else if (validation.score >= 0.5) {
+      validation.status = 'draft';
+    } else {
+      validation.status = 'rejected';
+    }
+
+    return validation;
+  }
+}
+```
+
+### Task 5.4: SkillStore 和索引 (4天)
+
+**文件清单**:
+```
+src/evolution/skills/
+└── SkillStore.ts
+.evoagent/
+└── skills/
+    ├── auto/
+    ├── manual/
+    ├── deprecated/
+    ├── .backup/
+    └── index.json
+```
+
+**文件: src/evolution/skills/SkillStore.ts**
+```typescript
+export class SkillStore {
+  private index: SkillIndex = {};
+  private readonly INDEX_FILE = '.evoagent/skills/index.json';
+  private readonly BACKUP_DIR = '.evoagent/skills/.backup';
+
+  async save(skill: Skill): Promise<void> {
+    // 1. 备份现有版本
+    await this.backup(skill.name);
+
+    // 2. 验证格式
+    this.validate(skill);
+
+    // 3. 原子写入
+    const skillDir = this.getSkillDir(skill);
+    await fs.mkdir(skillDir, { recursive: true });
+
+    const skillPath = path.join(skillDir, 'SKILL.md');
+    const tempPath = skillPath + '.tmp';
+    await fs.writeFile(tempPath, skill.content, 'utf-8');
+    await fs.rename(tempPath, skillPath);
+
+    // 4. 原子更新索引
+    await this.updateIndex(skill);
+  }
+
+  async load(name: string): Promise<Skill | null> {
+    const skillPath = path.join(this.getSkillDirByName(name), 'SKILL.md');
+    try {
+      const content = await fs.readFile(skillPath, 'utf-8');
+      return this.parse(content);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  private async updateIndex(skill: Skill): Promise<void> {
+    this.index[skill.name] = {
+      name: skill.name,
+      status: skill.validation.status,
+      score: skill.validation.score,
+      tags: skill.tags,
+      updatedAt: new Date().toISOString()
+    };
+
+    const tempPath = this.INDEX_FILE + '.tmp';
+    await fs.writeFile(tempPath, JSON.stringify(this.index, null, 2), 'utf-8');
+    await fs.rename(tempPath, this.INDEX_FILE);
+  }
+
+  async list(filter?: { status?: SkillStatus; tags?: string[] }): Promise<Skill[]> {
+    const skills: Skill[] = [];
+    for (const name of Object.keys(this.index)) {
+      const skill = await this.load(name);
+      if (skill) {
+        if (filter?.status && skill.validation.status !== filter.status) continue;
+        if (filter?.tags && !filter.tags.some(t => skill.tags.includes(t))) continue;
+        skills.push(skill);
+      }
+    }
+    return skills;
+  }
+}
+```
+
+### Task 5.5: CLI 命令扩展 (4天)
+
+**文件清单**:
+```
+src/cli/
+└── commands/
+    └── skill.ts
+```
+
+**文件: src/cli/commands/skill.ts**
+```typescript
+import { Command } from 'commander';
+import { SkillStore } from '../../evolution/skills/SkillStore.js';
+
+export function registerSkillCommands(program: Command, skillStore: SkillStore): void {
+  const skillCmd = program.command('skill');
+
+  skillCmd
+    .command('list')
+    .option('-s, --status <status>', 'Filter by status')
+    .action(async (options) => {
+      const skills = await skillStore.list({
+        status: options.status
+      });
+      console.table(skills.map(s => ({
+        Name: s.name,
+        Status: s.validation.status,
+        Score: s.validation.score.toFixed(2),
+        Used: s.timesUsed
+      })));
+    });
+
+  skillCmd
+    .command('show <name>')
+    .action(async (name) => {
+      const skill = await skillStore.load(name);
+      if (!skill) {
+        console.error(`Skill not found: ${name}`);
+        return;
+      }
+      console.log(skill.content);
+    });
+
+  skillCmd
+    .command('feedback <name>')
+    .option('-p, --positive', 'Positive feedback')
+    .option('-n, --negative', 'Negative feedback')
+    .option('-c, --comment <text>', 'Comment')
+    .action(async (name, options) => {
+      await skillStore.recordFeedback(name, {
+        positive: options.positive,
+        negative: options.negative,
+        comment: options.comment
+      });
+      console.log('Feedback recorded');
+    });
+
+  skillCmd
+    .command('stats <name>')
+    .action(async (name) => {
+      const stats = await skillStore.getStats(name);
+      console.log(JSON.stringify(stats, null, 2));
+    });
+
+  skillCmd
+    .command('generate')
+    .option('--min-candidates <n>', 'Minimum candidates', '3')
+    .action(async (options) => {
+      const reflector = new SkillReflector(/* ... */);
+      const result = await reflector.run({
+        minCandidates: parseInt(options.minCandidates),
+        minOccurrence: 3
+      });
+      console.log(`Generated: ${result.generated.length}`);
+      console.log(`Rejected: ${result.rejected.length}`);
+      console.log(`Failed: ${result.failed.length}`);
+    });
+}
+```
+
+### Task 5.6: Orchestrator 技能发现 (5天)
+
+**文件清单**:
+```
+src/agent/orchestrator/
+└── SkillDiscovery.ts
+```
+
+**文件: src/agent/orchestrator/SkillDiscovery.ts**
+```typescript
+export class SkillDiscovery {
+  constructor(
+    private skillStore: SkillStore,
+    private vectorStore: VectorStore
+  ) {}
+
+  async discover(requirements: string): Promise<Skill[]> {
+    // 1. 向量搜索
+    const embedding = await this.vectorStore.embed(requirements);
+    const results = await this.vectorStore.similaritySearch(embedding, {
+      collection: 'skills',
+      limit: 10
+    });
+
+    // 2. 过滤和评分
+    const skills = await Promise.all(
+      results
+        .filter(r => r.metadata.status !== 'deprecated')
+        .map(async (r) => {
+          const skill = await this.skillStore.load(r.metadata.skillName);
+          if (!skill) return null;
+
+          // 综合评分 = 语义相似度 × 技能质量 × 成功率权重
+          const successRate = skill.timesUsed > 0
+            ? skill.timesSucceeded / skill.timesUsed
+            : 0.5;
+
+          return {
+            skill,
+            relevance: r.score * skill.validation.score * successRate
+          };
+        })
+    );
+
+    // 3. 排序并返回
+    return skills
+      .filter((s): s is { skill: Skill; relevance: number } => s !== null)
+      .sort((a, b) => b.relevance - a.relevance)
+      .slice(0, 5)
+      .map(s => s.skill);
+  }
+
+  async shouldUseSkill(skill: Skill): Promise<boolean> {
+    // 根据 cautiousFactor 决定是否需要确认
+    if (skill.cautiousFactor > 0.5) {
+      return false;  // 需要人工确认
+    }
+    return true;
+  }
+}
+```
+
+### Task 5.7: Metrics 和健康检查 (3天)
+
+**文件清单**:
+```
+src/observability/
+├── SkillMetrics.ts
+└── HealthCheck.ts
+```
+
+**文件: src/observability/SkillMetrics.ts**
+```typescript
+export class SkillMetrics {
+  private metrics: Map<string, SkillMetric> = new Map();
+
+  recordGeneration(duration: number, success: boolean): void {
+    const key = 'skill_generation';
+    if (!this.metrics.has(key)) {
+      this.metrics.set(key, {
+        count: 0,
+        successCount: 0,
+        failureCount: 0,
+        totalDuration: 0
+      });
+    }
+    const m = this.metrics.get(key)!;
+    m.count++;
+    m.totalDuration += duration;
+    if (success) m.successCount++;
+    else m.failureCount++;
+  }
+
+  recordUsage(skillName: string, success: boolean, duration: number): void {
+    const key = `skill_usage_${skillName}`;
+    if (!this.metrics.has(key)) {
+      this.metrics.set(key, {
+        count: 0,
+        successCount: 0,
+        failureCount: 0,
+        totalDuration: 0
+      });
+    }
+    const m = this.metrics.get(key)!;
+    m.count++;
+    m.totalDuration += duration;
+    if (success) m.successCount++;
+    else m.failureCount++;
+  }
+
+  exportPrometheus(): string {
+    const lines: string[] = [];
+
+    // 技能生成指标
+    const gen = this.metrics.get('skill_generation');
+    if (gen) {
+      lines.push(`skill_generation_duration_seconds ${gen.totalDuration / gen.count}`);
+      lines.push(`skill_generation_success_total ${gen.successCount}`);
+      lines.push(`skill_generation_failure_total ${gen.failureCount}`);
+    }
+
+    // 技能使用指标
+    for (const [key, m] of this.metrics) {
+      if (key.startsWith('skill_usage_')) {
+        const skillName = key.substring('skill_usage_'.length);
+        lines.push(`skill_usage_total{skill="${skillName}"} ${m.count}`);
+        lines.push(`skill_success_total{skill="${skillName}"} ${m.successCount}`);
+      }
+    }
+
+    return lines.join('\n');
+  }
+}
+```
+
+### Task 5.8: 生命周期管理 (4天)
+
+**文件清单**:
+```
+src/evolution/skills/
+└── SkillLifecycle.ts
+```
+
+**文件: src/evolution/skills/SkillLifecycle.ts**
+```typescript
+export class SkillLifecycle {
+  async onUsage(skill: Skill, result: AgentResult): Promise<void> {
+    // 更新统计
+    skill.timesUsed++;
+    if (result.success) {
+      skill.timesSucceeded++;
+    } else {
+      skill.timesFailed++;
+    }
+
+    // 检查是否需要转正
+    if (skill.validation.status === 'probation') {
+      if (skill.timesUsed >= 10) {
+        const successRate = skill.timesSucceeded / skill.timesUsed;
+        if (successRate >= 0.8) {
+          skill.validation.status = 'validated';
+          skill.cautiousFactor = 0.1;
+        }
+      }
+    }
+
+    // 检查是否需要降级
+    if (skill.validation.status === 'validated') {
+      if (this.getConsecutiveFailures(skill) >= 3) {
+        skill.validation.status = 'probation';
+        skill.cautiousFactor = 0.5;
+      }
+    }
+
+    if (skill.validation.status === 'probation') {
+      if (this.getConsecutiveFailures(skill) >= 5) {
+        skill.validation.status = 'draft';
+        skill.cautiousFactor = 0.8;
+      }
+    }
+
+    await this.skillStore.save(skill);
+  }
+
+  async checkDeprecated(): Promise<void> {
+    const skills = await this.skillStore.list();
+    const now = Date.now();
+    const thirtyDays = 30 * 24 * 60 * 60 * 1000;
+
+    for (const skill of skills) {
+      if (skill.validation.status === 'deprecated') continue;
+
+      const lastUsed = new Date(skill.lastUsed || skill.created).getTime();
+      if (now - lastUsed > thirtyDays) {
+        skill.validation.status = 'deprecated';
+        await this.skillStore.save(skill);
+      }
+    }
+  }
+}
+```
+
+---
+
 ## 质量保障策略
 
 ### 测试策略
@@ -1627,7 +2255,7 @@ src/queue/
 
 ---
 
-**文档版本**: v1.2
+**文档版本**: v1.3
 **创建时间**: 2025-01-28
 **更新时间**: 2025-01-30
 **维护者**: EvoAgent Team

@@ -1,0 +1,21 @@
+{
+  "version": "1.0",
+  "lastUpdated": "2025-01-30T00:00:00Z",
+  "skills": [
+    {
+      "name": "virtual-roundtable",
+      "path": "manual/virtual-roundtable",
+      "status": "validated",
+      "version": "1.0.0",
+      "source": "manual",
+      "description": "组织虚拟专家圆桌会议，模拟多位专家对设计方案进行评审"
+    },
+    {
+      "name": "technical-roundtable",
+      "path": "manual/technical-roundtable",
+      "status": "validated",
+      "version": "1.0.0",
+      "source": "manual"
+    }
+  ]
+}

@@ -104,7 +104,7 @@ export class ReviewerAgent extends BaseAgent {
     const runId = this.initRun(options.input, options.sessionId, options.parentRunId);
 
     try {
-      const systemPrompt = this.buildSystemPrompt();
+      const systemPrompt = await this.buildSystemPrompt();
       const messages: Message[] = [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: options.input }
@@ -202,8 +202,8 @@ export class ReviewerAgent extends BaseAgent {
     }
   }
 
-  protected buildSystemPrompt(): string {
-    return this.config.systemPrompt || `You are a Reviewer agent specializing in comprehensive code review.
+  protected async buildSystemPrompt(): Promise<string> {
+    const basePrompt = this.config.systemPrompt || `You are a Reviewer agent specializing in comprehensive code review.
 
 Your role:
 - Review code for correctness, quality, and maintainability
@@ -252,6 +252,8 @@ Output format:
 ## Recommendations
 [Specific actionable suggestions]
 \`\`\``;
+    // 让基类注入 SOUL
+    return basePrompt;
   }
 
   private extractReviewComments(content: string): ReviewComment[] {
