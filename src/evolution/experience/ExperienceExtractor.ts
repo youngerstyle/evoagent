@@ -10,8 +10,10 @@ import type {
   ExperienceEvent,
   ExperienceEventType,
   EventSeverity,
+  EventDetails,
   ExtractionContext
 } from './ExperienceTypes.js';
+import type { LLMService } from '../../core/llm/types.js';
 
 const logger = getLogger('evolution:extractor');
 
@@ -205,8 +207,11 @@ interface TriggerCondition {
  */
 export class ExperienceExtractor {
   private rules: Map<string, ExtractionRule> = new Map();
+  private llm?: LLMService;
 
-  constructor() {
+  constructor(llm?: LLMService) {
+    this.llm = llm;
+
     // 注册默认规则
     for (const rule of DEFAULT_RULES) {
       this.rules.set(rule.id, rule);
@@ -344,13 +349,61 @@ export class ExperienceExtractor {
       return extractorConfig.function(context);
     }
 
-    // AI 提取器暂不支持
-    if (extractorConfig.type === 'ai') {
-      logger.warn('AI extractor not yet implemented');
-      return null;
+    // AI 提取器
+    if (extractorConfig.type === 'ai' && extractorConfig.ai) {
+      return this.extractWithAI(context, extractorConfig.ai.prompt);
     }
 
     return null;
+  }
+
+  /**
+   * 使用 AI 提取经验
+   */
+  private async extractWithAI(
+    context: ExtractionContext,
+    prompt: string
+  ): Promise<Partial<ExperienceEvent> | null> {
+    if (!this.llm) {
+      logger.warn('AI extractor requested but no LLM service available');
+      return null;
+    }
+
+    try {
+      const resolvedPrompt = this.resolveTemplate(prompt, context);
+
+      const response = await this.llm.complete({
+        messages: [{
+          role: 'user',
+          content: resolvedPrompt
+        }]
+      });
+
+      // 尝试解析 JSON 响应
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(response.content);
+      } catch {
+        // 如果不是 JSON，尝试提取关键信息
+        parsed = {
+          title: 'AI 提取的经验',
+          description: response.content.slice(0, 500)
+        };
+      }
+
+      const result = parsed as Record<string, unknown>;
+
+      return {
+        title: (result.title as string) || 'AI 提取的经验',
+        description: (result.description as string) || '',
+        details: result.details as EventDetails,
+        tags: result.tags as string[] || [],
+        severity: result.severity as EventSeverity || 'info'
+      };
+    } catch (error) {
+      logger.warn('AI extraction failed', { error });
+      return null;
+    }
   }
 
   /**

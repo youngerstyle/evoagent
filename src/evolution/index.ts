@@ -98,3 +98,28 @@ export type {
   GitReport,
   GitReportSummary
 } from './git/index.js';
+
+// Skills Module (Third Track Evolution)
+export { SkillCollector, SkillStore, SkillGenerator, SkillReflector, SkillReviewer } from './skills/index.js';
+export type {
+  Skill,
+  PatternCandidate,
+  SkillMetadata,
+  SkillValidationInfo,
+  SkillRequirements,
+  SkillGenerationParams,
+  SkillValidationResult,
+  SkillUsageStats,
+  SkillDegradationCriteria,
+  SkillIndex,
+  SkillIndexEntry,
+  SkillStoreConfig,
+  SkillCollectorConfig,
+  SkillReflectorConfig,
+  SkillReviewerConfig,
+  SkillSearchFilter,
+  SkillExecutionResult,
+  SkillExecutionContext,
+  SkillValidationStatus,
+  SkillSource
+} from './skills/SkillTypes.js';

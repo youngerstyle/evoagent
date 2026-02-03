@@ -2,11 +2,13 @@ export type * from './types.js';
 export { MockLLMService } from './mock.js';
 export { AnthropicLLMService } from './anthropic.js';
 export { OpenAILLMService } from './openai.js';
+export { CustomLLMService } from './custom.js';
 
 import type { LLMService, LLMServiceConfig } from './types.js';
 import { MockLLMService } from './mock.js';
 import { AnthropicLLMService } from './anthropic.js';
 import { OpenAILLMService } from './openai.js';
+import { CustomLLMService } from './custom.js';
 import { getLogger } from '../logger/index.js';
 
 const logger = getLogger('llm');
@@ -45,8 +47,14 @@ export function createLLMService(config: LLMServiceConfig): LLMService {
       });
 
     case 'custom':
-      logger.warn('Custom provider not yet implemented, using mock');
-      return new MockLLMService();
+      // 自定义端点 (Ollama, LM Studio, etc.)
+      return new CustomLLMService({
+        baseUrl: config.baseUrl || 'http://localhost:11434/v1',
+        model: config.model,
+        apiKey: config.apiKey,
+        timeout: config.timeout,
+        maxRetries: config.maxRetries
+      });
 
     default:
       logger.warn(`Unknown provider: ${config.provider}, using mock`);

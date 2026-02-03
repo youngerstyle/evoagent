@@ -1,0 +1,167 @@
+# EvoAgent Configuration File
+# 复制此文件为 config.yaml 并根据需要修改配置
+
+# 版本信息
+version: "1.0.0"
+
+# 服务器配置
+server:
+  host: "127.0.0.1"
+  port: 18790
+  # WebSocket 配置
+  websocket:
+    pingInterval: 30000  # 心跳间隔（毫秒）
+    pingTimeout: 60000   # 心跳超时（毫秒）
+
+# LLM 配置
+llm:
+  # 提供商: anthropic | openai | custom
+  provider: "anthropic"
+
+  # 模型名称
+  model: "claude-3-5-sonnet-20241022"
+
+  # API 配置
+  apiKey: "${ANTHROPIC_API_KEY}"  # 从环境变量读取
+
+  # 生成参数
+  maxTokens: 8192
+  temperature: 0.3
+
+  # 自定义端点（仅当 provider 为 custom 时使用）
+  # customEndpoint: "http://localhost:11434/v1"
+
+# 内存系统配置
+memory:
+  # 会话存储
+  sessionDir: ".evoagent/sessions"
+  maxSessions: 100
+  sessionMaxAge: 2592000000  # 30天（毫秒）
+
+  # 知识库
+  knowledgeDir: ".evoagent/knowledge"
+
+  # 向量存储（可选）
+  vectorStore:
+    enabled: false
+    provider: "chromadb"  # chromadb | pinecone | weaviate
+    # chromaDbPath: ".evoagent/vector"
+    # pineconeApiKey: "${PINECONE_API_KEY}"
+    # pineconeEnvironment: "us-west1-gcp"
+
+# 进化系统配置
+evolution:
+  # 是否启用进化
+  enabled: true
+
+  # SOUL 进化
+  soul:
+    reflectAfterSessions: 10
+    autoReflect: false
+    minFeedbackForEvolution: 5
+
+  # 技能进化
+  skills:
+    autoCollect: true
+    minOccurrence: 2
+    confidenceThreshold: 0.7
+    probationThreshold: 3
+    cautiousFactor: 0.8
+
+  # Prompt 进化
+  prompts:
+    autoOptimize: false
+    abTestEnabled: false
+    minSamplesForOptimization: 10
+
+# Agent 配置
+agents:
+  # Planner Agent
+  planner:
+    enabled: true
+    model: "claude-3-5-sonnet-20241022"
+    temperature: 0.3
+    maxTokens: 4000
+
+  # Orchestrator Agent
+  orchestrator:
+    enabled: true
+    maxRetries: 3
+    retryDelay: 1000
+    timeout: 300000  # 5分钟
+    enableParallel: false
+
+  # Specialist Agents
+  codewriter:
+    enabled: true
+    model: "claude-3-5-sonnet-20241022"
+    temperature: 0.3
+
+  tester:
+    enabled: true
+    model: "claude-3-5-sonnet-20241022"
+    temperature: 0.2
+
+  reviewer:
+    enabled: true
+    model: "claude-3-5-sonnet-20241022"
+    temperature: 0.2
+
+# 弹性机制配置
+resilience:
+  # 熔断器
+  circuitBreaker:
+    enabled: true
+    failureThreshold: 5
+    resetTimeout: 60000
+    halfOpenMaxCalls: 3
+
+  # 速率限制
+  rateLimit:
+    enabled: true
+    llmApi:
+      capacity: 60
+      refillRate: 1
+    wsMessage:
+      capacity: 100
+      refillRate: 10
+
+  # 优雅降级
+  gracefulDegradation:
+    enabled: true
+    fallbackModel: "claude-3-haiku-20240307"
+
+# 可观测性配置
+observability:
+  # 日志
+  logging:
+    level: "info"  # debug | info | warn | error
+    format: "json"  # json | text
+    file: ".evoagent/logs/evoagent.log"
+
+  # 指标
+  metrics:
+    enabled: true
+    port: 9090
+    path: "/metrics"
+
+  # 健康检查
+  healthCheck:
+    enabled: true
+    path: "/health"
+
+# Git 集成配置
+git:
+  enabled: false
+  autoCommit: false
+  commitMessageTemplate: "feat: {description}\n\nCo-Authored-By: EvoAgent <noreply@evoagent.dev>"
+
+# 工作空间配置
+workspace:
+  root: "."
+  excludePatterns:
+    - "node_modules"
+    - ".git"
+    - "dist"
+    - "build"
+    - ".evoagent"

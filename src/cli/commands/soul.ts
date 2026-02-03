@@ -123,19 +123,36 @@ export function registerSoulCommands(
     .command('reset [agent]')
     .description('重置 SOUL 为默认值')
     .option('-f, --force', '强制重置，不询问')
-    .action(async (_agent, _options) => {
-      console.warn('此操作将重置 SOUL 为默认值。');
-      // TODO: 实现重置逻辑
-      console.log('SOUL 重置功能待实现');
+    .action(async (agent, options) => {
+      const target = agent || '全局 SOUL';
+
+      if (!options.force) {
+        console.warn(`⚠️  此操作将重置 ${target} 为默认值。`);
+        console.warn('这个操作不可撤销。');
+        console.log('');
+        console.log('使用 --force 选项确认操作。');
+        return;
+      }
+
+      try {
+        await soulSystem.resetSoul(agent);
+        console.log(`✓ ${target} 已重置为默认值`);
+      } catch (error) {
+        console.error(`❌ 重置失败: ${error}`);
+      }
     });
 
   // soul diff [agent1] [agent2]
   soulCmd
     .command('diff [agent1] [agent2]')
     .description('对比两个 SOUL 的差异')
-    .action(async () => {
-      // TODO: 实现对比逻辑
-      console.log('SOUL 对比功能待实现');
+    .action(async (agent1, agent2) => {
+      try {
+        const diff = await soulSystem.diffSouls(agent1, agent2);
+        console.log(diff);
+      } catch (error) {
+        console.error(`❌ 对比失败: ${error}`);
+      }
     });
 
   // soul feedback

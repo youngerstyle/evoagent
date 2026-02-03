@@ -1,0 +1,183 @@
+version: '3.8'
+
+services:
+  # ============================================
+  # EvoAgent Main Service
+  # ============================================
+  evoagent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: evoagent
+    restart: unless-stopped
+    ports:
+      - "${EVOAGENT_PORT:-18790}:18790"
+    environment:
+      - NODE_ENV=production
+      - PORT=18790
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - MAX_CONCURRENT_SESSIONS=${MAX_CONCURRENT_SESSIONS:-10}
+      - SESSION_TIMEOUT_MS=${SESSION_TIMEOUT_MS:-3600000}
+      - ENABLE_METRICS=${ENABLE_METRICS:-true}
+      - PROMETHEUS_ENABLED=${PROMETHEUS_ENABLED:-false}
+      - PROMETHEUS_PORT=${PROMETHEUS_PORT:-9090}
+    volumes:
+      # Mount configuration file
+      - ./config.yaml:/app/config.yaml:ro
+      # Mount data directory for persistence
+      - evoagent-data:/app/data
+      # Mount skills directory
+      - evoagent-skills:/app/data/skills
+      # Mount sessions directory
+      - evoagent-sessions:/app/data/sessions
+      # Mount logs
+      - evoagent-logs:/app/logs
+    networks:
+      - evoagent-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:18790/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    depends_on:
+      - redis
+    labels:
+      - "com.evoagent.description=EvoAgent AI Agent System"
+      - "com.evoagent.version=1.0.0"
+
+  # ============================================
+  # Redis for Caching and Session Management
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: evoagent-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    networks:
+      - evoagent-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    labels:
+      - "com.evoagent.description=Redis cache for EvoAgent"
+
+  # ============================================
+  # Prometheus for Metrics Collection
+  # ============================================
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: evoagent-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    networks:
+      - evoagent-network
+    labels:
+      - "com.evoagent.description=Prometheus metrics server"
+    profiles:
+      - metrics
+
+  # ============================================
+  # Grafana for Metrics Visualization
+  # ============================================
+  grafana:
+    image: grafana/grafana:latest
+    container_name: evoagent-grafana
+    restart: unless-stopped
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./deploy/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./deploy/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    networks:
+      - evoagent-network
+    depends_on:
+      - prometheus
+    labels:
+      - "com.evoagent.description=Grafana dashboard for metrics"
+    profiles:
+      - metrics
+
+  # ============================================
+  # Nginx Reverse Proxy (Optional)
+  # ============================================
+  nginx:
+    image: nginx:alpine
+    container_name: evoagent-nginx
+    restart: unless-stopped
+    ports:
+      - "${NGINX_HTTP_PORT:-80}:80"
+      - "${NGINX_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/nginx/ssl:/etc/nginx/ssl:ro
+      - nginx-logs:/var/log/nginx
+    networks:
+      - evoagent-network
+    depends_on:
+      - evoagent
+    labels:
+      - "com.evoagent.description=Nginx reverse proxy"
+    profiles:
+      - proxy
+
+networks:
+  evoagent-network:
+    driver: bridge
+    labels:
+      - "com.evoagent.description=EvoAgent network"
+
+volumes:
+  evoagent-data:
+    driver: local
+    labels:
+      - "com.evoagent.description=EvoAgent data volume"
+  evoagent-skills:
+    driver: local
+    labels:
+      - "com.evoagent.description=EvoAgent skills volume"
+  evoagent-sessions:
+    driver: local
+    labels:
+      - "com.evoagent.description=EvoAgent sessions volume"
+  evoagent-logs:
+    driver: local
+    labels:
+      - "com.evoagent.description=EvoAgent logs volume"
+  redis-data:
+    driver: local
+    labels:
+      - "com.evoagent.description=Redis data volume"
+  prometheus-data:
+    driver: local
+    labels:
+      - "com.evoagent.description=Prometheus data volume"
+  grafana-data:
+    driver: local
+    labels:
+      - "com.evoagent.description=Grafana data volume"
+  nginx-logs:
+    driver: local
+    labels:
+      - "com.evoagent.description=Nginx logs volume"

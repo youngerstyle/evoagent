@@ -1,5 +1,6 @@
 import { readFileSync, existsSync } from 'fs';
 import { resolve } from 'path';
+import YAML from 'yaml';
 
 export interface ConfigSource {
   type: 'file' | 'env' | 'cli';
@@ -25,7 +26,7 @@ export class ConfigLoader {
         const fileConfig = this.loadFileConfig(configPath);
         configs.push(fileConfig);
       } catch (error) {
-        console.warn(`Failed to load config file: ${configPath}`);
+        console.warn(`Failed to load config file: ${configPath}`, error);
       }
     }
 
@@ -38,6 +39,10 @@ export class ConfigLoader {
 
   private findConfigFile(): string | null {
     const candidates = [
+      'config.yaml',
+      'config.yml',
+      '.evoagent/config.yaml',
+      '.evoagent/config.yml',
       'evoagent.config.json',
       'evoagent.config.js',
       '.evoagentrc',
@@ -58,7 +63,11 @@ export class ConfigLoader {
     return {
       server: {
         port: 18790,
-        host: 'localhost'
+        host: '127.0.0.1',
+        websocket: {
+          pingInterval: 30000,
+          pingTimeout: 60000
+        }
       },
       agent: {
         maxConcurrent: 3,
@@ -66,9 +75,9 @@ export class ConfigLoader {
         checkpointInterval: 30000
       },
       memory: {
-        sessionDir: '~/.evoagent/sessions',
-        knowledgeDir: '~/.evoagent/knowledge',
-        vectorDbPath: '~/.evoagent/vectors.db',
+        sessionDir: '.evoagent/sessions',
+        knowledgeDir: '.evoagent/knowledge',
+        vectorDbPath: '.evoagent/vectors.db',
         maxSessionEntries: 10000,
         sessionTTL: 7 * 24 * 60 * 60 * 1000 // 7 days
       },
@@ -76,7 +85,7 @@ export class ConfigLoader {
         provider: 'anthropic',
         model: 'claude-3-5-sonnet-20241022',
         maxTokens: 8192,
-        temperature: 0.7,
+        temperature: 0.3,
         timeout: 60000
       },
       log: {
@@ -96,6 +105,13 @@ export class ConfigLoader {
     const fullPath = resolve(path);
     const content = readFileSync(fullPath, 'utf-8');
 
+    // 支持 YAML
+    if (path.endsWith('.yaml') || path.endsWith('.yml')) {
+      const parsed = YAML.parse(content);
+      return this.resolveEnvVariables(parsed);
+    }
+
+    // 支持 JSON
     if (path.endsWith('.json')) {
       return JSON.parse(content);
     }
@@ -103,6 +119,33 @@ export class ConfigLoader {
     // 对于 .js 或 .cjs 文件，这里简化处理
     // 实际使用动态 import
     return JSON.parse(content);
+  }
+
+  /**
+   * 解析配置中的环境变量引用 ${VAR_NAME}
+   */
+  private resolveEnvVariables(obj: any): any {
+    if (typeof obj === 'string') {
+      // 匹配 ${VAR_NAME} 或 $VAR_NAME
+      return obj.replace(/\$\{([^}]+)\}|\$([A-Z_][A-Z0-9_]*)/g, (match, p1, p2) => {
+        const varName = p1 || p2;
+        return process.env[varName] || match;
+      });
+    }
+
+    if (Array.isArray(obj)) {
+      return obj.map(item => this.resolveEnvVariables(item));
+    }
+
+    if (obj && typeof obj === 'object') {
+      const result: Record<string, any> = {};
+      for (const [key, value] of Object.entries(obj)) {
+        result[key] = this.resolveEnvVariables(value);
+      }
+      return result;
+    }
+
+    return obj;
   }
 
   private loadEnvConfig(prefix: string): Record<string, unknown> {

@@ -15,6 +15,8 @@ import type { AgentConfig } from '../../types/agent.js';
 import type { LLMService } from '../../core/llm/types.js';
 import { getLogger } from '../../core/logger/index.js';
 import type { SoulSystem } from '../../soul/index.js';
+import type { SkillStore } from '../../evolution/skills/SkillStore.js';
+import type { Skill } from '../../evolution/skills/SkillTypes.js';
 
 const logger = getLogger('agent');
 
@@ -25,6 +27,7 @@ const logger = getLogger('agent');
 export abstract class BaseAgent implements AgentInterface {
   protected llm: LLMService;
   protected soulSystem?: SoulSystem;
+  protected skillStore?: SkillStore;
   protected activeRuns: Map<string, AgentRunStatus>;
   protected checkpoints: Map<string, AgentCheckpoint>;
   protected eventListeners: Set<AgentEventListener>;
@@ -34,10 +37,12 @@ export abstract class BaseAgent implements AgentInterface {
     public readonly config: AgentConfig,
     public readonly type: string,
     llm: LLMService,
-    soulSystem?: SoulSystem
+    soulSystem?: SoulSystem,
+    skillStore?: SkillStore
   ) {
     this.llm = llm;
     this.soulSystem = soulSystem;
+    this.skillStore = skillStore;
     this.activeRuns = new Map();
     this.checkpoints = new Map();
     this.eventListeners = new Set();
@@ -385,5 +390,140 @@ export abstract class BaseAgent implements AgentInterface {
    */
   protected registerDefaultTools(): void {
     // 子类可以覆盖此方法注册特定工具
+  }
+
+  // ===== 技能系统集成 =====
+
+  /**
+   * 查询相关技能
+   */
+  protected async querySkills(context: string, tags?: string[]): Promise<Skill[]> {
+    if (!this.skillStore) {
+      return [];
+    }
+
+    try {
+      await this.skillStore.init();
+      const skills = await this.skillStore.searchSkills({
+        searchText: context,
+        tags,
+        status: ['validated', 'probation'],
+        minSuccessRate: 0.6
+      });
+
+      logger.debug(`Found ${skills.length} relevant skills for context: ${context.slice(0, 50)}...`);
+      return skills;
+    } catch (error) {
+      logger.error('Failed to query skills:', error);
+      return [];
+    }
+  }
+
+  /**
+   * 应用技能
+   */
+  protected async applySkill(skill: Skill, context: AgentContext): Promise<ToolResult> {
+    if (!this.skillStore) {
+      return {
+        success: false,
+        error: 'Skill store not available'
+      };
+    }
+
+    try {
+      logger.info(`Applying skill: ${skill.metadata.name}`);
+
+      // 使用技能执行器执行技能
+      const { globalSkillExecutor } = await import('../../evolution/skills/SkillExecutor.js');
+
+      // 从上下文中提取参数（如果有）
+      const parameters = (context.metadata?.skillParameters as Record<string, string | number | boolean | object>) || {};
+
+      const result = await globalSkillExecutor.execute(
+        skill,
+        parameters,
+        context,
+        {
+          timeout: 30000,
+          maxMemory: 128 * 1024 * 1024
+        }
+      );
+
+      // 更新技能统计
+      const duration = (result as any).metadata?.duration as number || 0;
+      await this.skillStore.updateUsageStats(
+        skill.metadata.name,
+        result.success,
+        duration
+      );
+
+      logger.info(`Skill ${skill.metadata.name} ${result.success ? 'succeeded' : 'failed'} in ${duration}ms`);
+
+      return result;
+    } catch (error) {
+      logger.error(`Failed to apply skill ${skill.metadata.name}:`, error);
+
+      // 记录失败
+      if (this.skillStore) {
+        await this.skillStore.updateUsageStats(
+          skill.metadata.name,
+          false,
+          0
+        );
+      }
+
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : String(error)
+      };
+    }
+  }
+
+  /**
+   * 推荐技能
+   */
+  protected async recommendSkills(input: string): Promise<Skill[]> {
+    if (!this.skillStore) {
+      return [];
+    }
+
+    try {
+      await this.skillStore.init();
+
+      // 基于输入内容搜索相关技能
+      const skills = await this.skillStore.searchSkills({
+        searchText: input,
+        status: ['validated'],
+        minSuccessRate: 0.7,
+        minTimesUsed: 3
+      });
+
+      // 按成功率和使用次数排序
+      const sorted = skills.sort((a, b) => {
+        const scoreA = (a.metadata.timesSucceeded / Math.max(a.metadata.timesUsed, 1)) * Math.log(a.metadata.timesUsed + 1);
+        const scoreB = (b.metadata.timesSucceeded / Math.max(b.metadata.timesUsed, 1)) * Math.log(b.metadata.timesUsed + 1);
+        return scoreB - scoreA;
+      });
+
+      return sorted.slice(0, 5); // 返回前5个推荐
+    } catch (error) {
+      logger.error('Failed to recommend skills:', error);
+      return [];
+    }
+  }
+
+  /**
+   * 记录技能使用统计
+   */
+  protected async recordSkillUsage(skillId: string, success: boolean, duration: number): Promise<void> {
+    if (!this.skillStore) {
+      return;
+    }
+
+    try {
+      await this.skillStore.updateUsageStats(skillId, success, duration);
+    } catch (error) {
+      logger.error(`Failed to record skill usage for ${skillId}:`, error);
+    }
   }
 }
