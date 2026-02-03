@@ -6,7 +6,7 @@
 
 import { promises as fs } from 'fs';
 import { existsSync } from 'fs';
-import { join } from 'path';
+import { join, basename, resolve, relative } from 'path';
 import { getLogger } from '../../core/logger/index.js';
 import type {
   Skill,
@@ -46,6 +46,40 @@ export class SkillStore {
   }
 
   /**
+   * 验证文件名安全性（防止路径遍历）
+   */
+  private validateFileName(fileName: string): string {
+    // 只保留文件名，移除任何路径分隔符
+    const safeName = basename(fileName);
+
+    // 检查是否包含危险字符
+    if (safeName.includes('..') || safeName.includes('/') || safeName.includes('\\')) {
+      throw new Error(`Invalid file name: ${fileName}`);
+    }
+
+    // 检查文件名长度
+    if (safeName.length === 0 || safeName.length > 255) {
+      throw new Error(`File name length invalid: ${fileName}`);
+    }
+
+    return safeName;
+  }
+
+  /**
+   * 验证路径安全性（确保在允许的目录内）
+   */
+  private validatePath(targetPath: string, allowedDir: string): void {
+    const resolvedTarget = resolve(targetPath);
+    const resolvedAllowed = resolve(allowedDir);
+    const relativePath = relative(resolvedAllowed, resolvedTarget);
+
+    // 检查是否在允许的目录内
+    if (relativePath.startsWith('..') || resolve(relativePath) === relativePath) {
+      throw new Error(`Path traversal detected: ${targetPath}`);
+    }
+  }
+
+  /**
    * 初始化存储
    */
   async init(): Promise<void> {
@@ -65,11 +99,13 @@ export class SkillStore {
    * 保存技能
    */
   async saveSkill(skill: Skill, source: 'auto' | 'manual' = 'auto'): Promise<string> {
-    const skillId = skill.metadata.name;
-    const skillDir = join(
-      source === 'auto' ? this.config.autoDir : this.config.manualDir,
-      skillId
-    );
+    // 验证技能ID安全性
+    const skillId = this.validateFileName(skill.metadata.name);
+    const baseDir = source === 'auto' ? this.config.autoDir : this.config.manualDir;
+    const skillDir = join(baseDir, skillId);
+
+    // 验证路径安全性
+    this.validatePath(skillDir, baseDir);
 
     // 创建技能目录
     await fs.mkdir(skillDir, { recursive: true });
@@ -84,7 +120,11 @@ export class SkillStore {
       const templatesDir = join(skillDir, 'templates');
       await fs.mkdir(templatesDir, { recursive: true });
       for (const [name, template] of skill.templates.entries()) {
-        await fs.writeFile(join(templatesDir, name), template.content, 'utf-8');
+        // 验证文件名安全性
+        const safeName = this.validateFileName(name);
+        const templatePath = join(templatesDir, safeName);
+        this.validatePath(templatePath, templatesDir);
+        await fs.writeFile(templatePath, template.content, 'utf-8');
       }
     }
 
@@ -93,7 +133,11 @@ export class SkillStore {
       const testsDir = join(skillDir, 'tests');
       await fs.mkdir(testsDir, { recursive: true });
       for (const [name, content] of skill.tests.entries()) {
-        await fs.writeFile(join(testsDir, name), content, 'utf-8');
+        // 验证文件名安全性
+        const safeName = this.validateFileName(name);
+        const testPath = join(testsDir, safeName);
+        this.validatePath(testPath, testsDir);
+        await fs.writeFile(testPath, content, 'utf-8');
       }
     }
 

@@ -8,10 +8,10 @@
  * - 错误处理
  */
 
-import { VM } from 'vm2';
 import type { Skill, SkillTemplate } from './SkillTypes.js';
 import type { AgentContext, ToolResult } from '../../agent/base/types.js';
 import { getLogger } from '../../core/logger/index.js';
+import { WorkerSandbox } from './sandbox/WorkerSandbox.js';
 
 const logger = getLogger('skill-executor');
 
@@ -38,6 +38,11 @@ export interface TemplateParameters {
 export class SkillExecutor {
   private readonly defaultTimeout = 30000; // 30秒
   private readonly defaultMaxMemory = 128 * 1024 * 1024; // 128MB
+  private readonly sandbox: WorkerSandbox;
+
+  constructor() {
+    this.sandbox = new WorkerSandbox();
+  }
 
   /**
    * 执行技能
@@ -183,9 +188,8 @@ export class SkillExecutor {
     // 替换所有 {{ParameterName}} 占位符
     for (const [key, value] of Object.entries(parameters)) {
       const placeholder = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
-      const stringValue = typeof value === 'object'
-        ? JSON.stringify(value)
-        : String(value);
+      // 使用安全的参数转义
+      const stringValue = this.sandbox.escapeParameter(value);
       result = result.replace(placeholder, stringValue);
     }
 
@@ -208,130 +212,42 @@ export class SkillExecutor {
     context: AgentContext,
     options: Required<Pick<SkillExecutionOptions, 'timeout' | 'maxMemory' | 'allowedModules'>>
   ): Promise<ToolResult> {
-    return new Promise((resolve) => {
-      const timeoutId = setTimeout(() => {
-        resolve({
-          success: false,
-          output: null,
-          error: `Execution timeout after ${options.timeout}ms`
-        });
-      }, options.timeout);
+    // 执行安全检查
+    const security = this.sandbox.validateSecurity(code);
+    if (!security.safe) {
+      return {
+        success: false,
+        output: null,
+        error: `Security check failed: ${security.issues.join(', ')}`
+      };
+    }
 
-      try {
-        // 创建 VM2 沙箱
-        const vm = new VM({
-          timeout: options.timeout,
-          sandbox: {
-            // 提供安全的上下文
-            context: {
-              workspace: context.workspace,
-              sessionId: context.sessionId,
-              agentId: context.agentId
-            },
-            // 提供安全的工具函数
-            console: {
-              log: (...args: unknown[]) => logger.debug('Sandbox log:', { args }),
-              error: (...args: unknown[]) => logger.error('Sandbox error:', { args }),
-              warn: (...args: unknown[]) => logger.warn('Sandbox warn:', { args })
-            },
-            // 结果收集器
-            __result: null as unknown
-          },
-          eval: false,
-          wasm: false,
-          fixAsync: true
-        });
+    // 准备安全的上下文
+    const safeContext = {
+      workspace: context.workspace,
+      sessionId: context.sessionId,
+      agentId: context.agentId
+    };
 
-        // 包装代码以捕获结果
-        const wrappedCode = `
-          (async function() {
-            ${code}
-          })().then(result => {
-            __result = result;
-          }).catch(error => {
-            __result = { __error: error.message };
-          });
-        `;
-
-        // 执行代码
-        vm.run(wrappedCode);
-
-        // 等待异步执行完成
-        const checkResult = setInterval(() => {
-          const sandbox = vm.getGlobal('__result');
-          if (sandbox !== null) {
-            clearInterval(checkResult);
-            clearTimeout(timeoutId);
-
-            // 检查是否有错误
-            if (sandbox && typeof sandbox === 'object' && '__error' in sandbox) {
-              resolve({
-                success: false,
-                output: null,
-                error: (sandbox as { __error: string }).__error
-              });
-            } else {
-              resolve({
-                success: true,
-                output: sandbox
-              });
-            }
-          }
-        }, 100);
-
-        // 设置检查超时
-        setTimeout(() => {
-          clearInterval(checkResult);
-          clearTimeout(timeoutId);
-          resolve({
-            success: false,
-            output: null,
-            error: 'Execution did not complete in time'
-          });
-        }, options.timeout);
-
-      } catch (error) {
-        clearTimeout(timeoutId);
-        resolve({
-          success: false,
-          output: null,
-          error: error instanceof Error ? error.message : String(error)
-        });
-      }
+    // 在沙箱中执行
+    const result = await this.sandbox.execute(code, safeContext, {
+      timeout: options.timeout,
+      maxMemory: options.maxMemory,
+      allowedModules: options.allowedModules
     });
+
+    return {
+      success: result.success,
+      output: result.output,
+      error: result.error
+    };
   }
 
   /**
    * 验证技能代码安全性
    */
   validateSecurity(content: string): { safe: boolean; issues: string[] } {
-    const code = typeof content === 'string' ? content : '';
-
-    const issues: string[] = [];
-
-    // 检查危险操作
-    const dangerousPatterns = [
-      { pattern: /require\s*\(/g, message: 'Direct require() calls are not allowed' },
-      { pattern: /import\s+/g, message: 'Import statements are not allowed' },
-      { pattern: /eval\s*\(/g, message: 'eval() is not allowed' },
-      { pattern: /Function\s*\(/g, message: 'Function constructor is not allowed' },
-      { pattern: /process\./g, message: 'Process access is not allowed' },
-      { pattern: /child_process/g, message: 'Child process spawning is not allowed' },
-      { pattern: /fs\./g, message: 'Direct filesystem access is not allowed' },
-      { pattern: /__dirname/g, message: '__dirname access is not allowed' },
-      { pattern: /__filename/g, message: '__filename access is not allowed' }
-    ];
-
-    for (const { pattern, message } of dangerousPatterns) {
-      if (pattern.test(code)) {
-        issues.push(message);
-      }
-    }
-
-    return {
-      safe: issues.length === 0,
-      issues
-    };
+    return this.sandbox.validateSecurity(content);
   }
 
   /**

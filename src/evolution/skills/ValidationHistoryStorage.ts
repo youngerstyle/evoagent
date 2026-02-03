@@ -5,8 +5,11 @@
  */
 
 import { promises as fs } from 'fs';
+import { createReadStream } from 'fs';
+import { createInterface } from 'readline';
 import { join } from 'path';
 import { getLogger } from '../../core/logger/index.js';
+import { InputValidator } from './InputValidator.js';
 
 const logger = getLogger('evolution:skills:validation-history');
 
@@ -81,6 +84,22 @@ export class ValidationHistoryStorage {
     passedTests: number,
     source: string
   ): Promise<void> {
+    // 输入验证
+    const validation = InputValidator.combine(
+      InputValidator.validateSkillId(skillId),
+      InputValidator.validateSkillName(skillName),
+      InputValidator.validateScore(score),
+      InputValidator.validatePositiveInteger(testCount, 'testCount'),
+      InputValidator.validatePositiveInteger(passedTests, 'passedTests'),
+      InputValidator.validateNonEmptyString(source, 'source'),
+      InputValidator.validateArray(errors, 'errors'),
+      InputValidator.validateArray(warnings, 'warnings')
+    );
+
+    if (!validation.valid) {
+      throw new Error(`Validation failed: ${validation.errors.join(', ')}`);
+    }
+
     const record: ValidationHistoryRecord = {
       skillId,
       skillName,
@@ -119,16 +138,23 @@ export class ValidationHistoryStorage {
     }
 
     try {
+      // 如果只需要少量记录，使用流式读取（更高效）
+      if (limit && limit < 1000) {
+        return await this.loadHistoryStream(limit);
+      }
+
+      // 否则加载全部到缓存
       const content = await fs.readFile(this.historyFile, 'utf-8');
       const lines = content.trim().split('\n');
 
       this.cache = [];
       for (const line of lines) {
+        if (!line.trim()) continue;
         try {
           const record = JSON.parse(line) as ValidationHistoryRecord;
           this.cache.push(record);
-        } catch {
-          // 忽略无效行
+        } catch (error) {
+          logger.debug('Failed to parse history line', { error });
         }
       }
 
@@ -146,6 +172,48 @@ export class ValidationHistoryStorage {
       }
       throw error;
     }
+  }
+
+  /**
+   * 流式加载历史记录（用于大文件）
+   */
+  private async loadHistoryStream(limit: number): Promise<ValidationHistoryRecord[]> {
+    return new Promise((resolve, reject) => {
+      const records: ValidationHistoryRecord[] = [];
+
+      try {
+        const fileStream = createReadStream(this.historyFile, { encoding: 'utf-8' });
+        const rl = createInterface({
+          input: fileStream,
+          crlfDelay: Infinity
+        });
+
+        rl.on('line', (line) => {
+          if (!line.trim()) return;
+          try {
+            const record = JSON.parse(line) as ValidationHistoryRecord;
+            records.push(record);
+          } catch (error) {
+            logger.debug('Failed to parse history line', { error });
+          }
+        });
+
+        rl.on('close', () => {
+          // 按时间排序并返回最后 N 条
+          records.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+          resolve(records.slice(-limit));
+        });
+
+        rl.on('error', reject);
+        fileStream.on('error', reject);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          resolve([]);
+        } else {
+          reject(error);
+        }
+      }
+    });
   }
 
   /**
